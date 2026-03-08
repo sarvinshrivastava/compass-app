@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    App Widget provider metadata.
+
+    targetCellWidth/Height (API 31+): default grid size shown in the widget picker.
+    minWidth/minHeight: fallback for Android 10 and below (API 24–30).
+    updatePeriodMillis = 0: WorkManager handles refresh; system-level polling is disabled.
+    resizeMode: user can resize in both directions to unlock medium and large tiers.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="40dp"
+    android:minHeight="40dp"
+    android:targetCellWidth="1"
+    android:targetCellHeight="1"
+    android:maxResizeWidth="250dp"
+    android:maxResizeHeight="250dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_description" />
