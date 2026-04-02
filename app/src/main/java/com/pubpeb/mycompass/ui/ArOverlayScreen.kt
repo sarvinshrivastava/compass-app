@@ -369,7 +369,9 @@ private fun CameraPreview(
         )
 
         onDispose {
-            ProcessCameraProvider.getInstance(context).get().unbindAll()
+            try {
+                ProcessCameraProvider.getInstance(context).get().unbindAll()
+            } catch (_: Exception) { }
         }
     }
 
