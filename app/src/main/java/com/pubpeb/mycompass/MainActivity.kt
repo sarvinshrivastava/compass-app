@@ -14,13 +14,6 @@ import com.pubpeb.mycompass.ui.MainScreen
 import com.pubpeb.mycompass.ui.theme.MyCompassTheme
 import com.pubpeb.mycompass.widget.CompassWidgetUpdateWorker
 
-// TODO Phase 2 – ARCore hook:
-//   Add `implementation("com.google.ar:core:<version>")` to build.gradle.kts.
-//   Create an ArSessionLifecycleObserver that initialises / pauses / resumes
-//   the ArSession in lockstep with this Activity's lifecycle using
-//   lifecycle.addObserver(ArSessionLifecycleObserver(this)).
-//   Expose ArSession via a singleton or Hilt-provided dependency.
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
