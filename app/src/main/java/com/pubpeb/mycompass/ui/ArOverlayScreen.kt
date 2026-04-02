@@ -9,10 +9,18 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -24,9 +32,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -38,12 +50,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +82,7 @@ import com.google.accompanist.permissions.shouldShowRationale
 import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 // ── Colour palette (matches existing screens) ─────────────────────────────────
 private val BgDeep          = Color(0xFF0D0F14)
@@ -504,6 +527,213 @@ private fun CardinalLabelChip(
             .background(LabelBackground, RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
+}
+
+// ── Torch button ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun TorchButton(
+    isTorchOn: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val glowAlpha by animateFloatAsState(
+        targetValue   = if (isTorchOn) 1f else 0f,
+        animationSpec = tween(durationMillis = 300),
+        label         = "torchGlow",
+    )
+    val borderColor = if (isTorchOn) AccentRed else Color(0x26CCD6F6)
+    val iconTint    = if (isTorchOn) AccentRed else TextSecondary
+
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .then(
+                if (glowAlpha > 0f) {
+                    Modifier.drawBehind {
+                        drawCircle(
+                            color  = AccentRed.copy(alpha = 0.25f * glowAlpha),
+                            radius = size.minDimension,
+                        )
+                    }
+                } else Modifier
+            )
+            .background(
+                color = if (isTorchOn) Color(0x33E63946) else Color(0x14CCD6F6),
+                shape = CircleShape,
+            )
+            .border(width = 1.5.dp, color = borderColor, shape = CircleShape)
+            .clickable(
+                onClick = onToggle,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+            )
+            .semantics {
+                contentDescription = if (isTorchOn) "Turn off flashlight" else "Turn on flashlight"
+                role = Role.Button
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector        = Icons.Filled.FlashOn,
+            contentDescription = null,
+            tint               = iconTint,
+            modifier           = Modifier.size(24.dp),
+        )
+    }
+}
+
+// ── Brightness slider ────────────────────────────────────────────────────────
+
+@Composable
+private fun BrightnessSlider(
+    fraction: Float,
+    onFractionChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val trackHeightDp = 70.dp
+    val thumbRadiusDp = 8.dp
+    val trackWidthDp  = 6.dp
+
+    Box(
+        modifier = modifier
+            .width(trackWidthDp + thumbRadiusDp * 2 + 8.dp)
+            .height(trackHeightDp + thumbRadiusDp * 2)
+            .semantics {
+                stateDescription = "Brightness ${(fraction * 100).roundToInt()}%"
+            }
+            .pointerInput(Unit) {
+                val trackHeightPx = trackHeightDp.toPx()
+                val thumbRadiusPx = thumbRadiusDp.toPx()
+                detectVerticalDragGestures { change, _ ->
+                    change.consume()
+                    val yInTrack = (change.position.y - thumbRadiusPx).coerceIn(0f, trackHeightPx)
+                    val newFraction = 1f - (yInTrack / trackHeightPx)
+                    onFractionChange(newFraction.coerceIn(0f, 1f))
+                }
+            },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(trackWidthDp)
+                .height(trackHeightDp)
+                .align(Alignment.Center)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color(0x26CCD6F6))
+        )
+        Box(
+            modifier = Modifier
+                .width(trackWidthDp)
+                .height(trackHeightDp * fraction)
+                .align(Alignment.BottomCenter)
+                .clip(RoundedCornerShape(3.dp))
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(TextPrimary, AccentRed),
+                    )
+                )
+        )
+        val thumbOffsetY = trackHeightDp * (1f - fraction)
+        Box(
+            modifier = Modifier
+                .size(thumbRadiusDp * 2)
+                .offset(y = thumbOffsetY)
+                .align(Alignment.TopCenter)
+                .background(TextPrimary, CircleShape)
+                .border(2.dp, Color(0xFF0D0F14), CircleShape)
+        )
+    }
+}
+
+// ── Torch bubble (draggable, expandable) ─────────────────────────────────────
+
+@Composable
+private fun TorchBubble(
+    isTorchOn: Boolean,
+    onToggleTorch: () -> Unit,
+    supportsBrightness: Boolean,
+    brightnessFraction: Float,
+    onBrightnessChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val density        = LocalDensity.current
+        val screenWidthPx  = with(density) { maxWidth.toPx() }
+        val screenHeightPx = with(density) { maxHeight.toPx() }
+
+        val bubbleWidthPx  = with(density) { 68.dp.toPx() }
+        val bubbleHeightPx = with(density) { if (isTorchOn && supportsBrightness) 160.dp.toPx() else 68.dp.toPx() }
+
+        val rightEdgeX = screenWidthPx - bubbleWidthPx - with(density) { 12.dp.toPx() }
+        val leftEdgeX  = with(density) { 12.dp.toPx() }
+        val defaultY = screenHeightPx - bubbleHeightPx - with(density) { 100.dp.toPx() }
+
+        val offsetX = remember { Animatable(rightEdgeX) }
+        var offsetY by remember { mutableFloatStateOf(defaultY) }
+        val scope   = rememberCoroutineScope()
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.value.roundToInt(), offsetY.roundToInt()) }
+                .pointerInput(Unit) {
+                    detectDragGesturesAfterLongPress(
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            scope.launch {
+                                offsetX.snapTo(offsetX.value + dragAmount.x)
+                            }
+                            offsetY = (offsetY + dragAmount.y).coerceIn(
+                                0f,
+                                screenHeightPx - bubbleHeightPx,
+                            )
+                        },
+                        onDragEnd = {
+                            val targetX = if (offsetX.value < screenWidthPx / 2f) leftEdgeX else rightEdgeX
+                            scope.launch {
+                                offsetX.animateTo(
+                                    targetValue   = targetX,
+                                    animationSpec = spring(
+                                        dampingRatio = 0.7f,
+                                        stiffness    = Spring.StiffnessMedium,
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                }
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .background(LabelBackground, RoundedCornerShape(28.dp))
+                    .border(
+                        width = 1.dp,
+                        color = if (isTorchOn) Color(0x66E63946) else Color(0x26CCD6F6),
+                        shape = RoundedCornerShape(28.dp),
+                    )
+                    .padding(10.dp)
+                    .animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = 0.8f,
+                            stiffness    = Spring.StiffnessMediumLow,
+                        ),
+                    ),
+            ) {
+                if (isTorchOn && supportsBrightness) {
+                    BrightnessSlider(
+                        fraction         = brightnessFraction,
+                        onFractionChange = onBrightnessChange,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                TorchButton(
+                    isTorchOn = isTorchOn,
+                    onToggle  = onToggleTorch,
+                )
+            }
+        }
+    }
 }
 
 // ── Camera permission UI ──────────────────────────────────────────────────────
