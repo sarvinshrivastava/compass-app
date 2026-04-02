@@ -714,7 +714,7 @@ private fun BrightnessSlider(
                 .offset(y = thumbOffsetY)
                 .align(Alignment.TopCenter)
                 .background(TextPrimary, CircleShape)
-                .border(2.dp, Color(0xFF0D0F14), CircleShape)
+                .border(2.dp, BgDeep, CircleShape)
         )
     }
 }
@@ -745,6 +745,12 @@ private fun TorchBubble(
         val offsetX = remember { Animatable(rightEdgeX) }
         var offsetY by remember { mutableFloatStateOf(defaultY) }
         val scope   = rememberCoroutineScope()
+
+        // Clamp offsetY when bubble height changes (e.g. torch toggled near bottom edge)
+        LaunchedEffect(bubbleHeightPx) {
+            val maxY = screenHeightPx - bubbleHeightPx
+            if (offsetY > maxY) offsetY = maxY
+        }
 
         Box(
             modifier = Modifier
