@@ -2,9 +2,13 @@ package com.pubpeb.mycompass.ui
 
 import android.Manifest
 import android.hardware.camera2.CameraCharacteristics
+import android.os.Build
 import android.util.Log
+import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.core.Camera
+import androidx.camera.core.TorchState
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -46,12 +50,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Observer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -168,36 +175,92 @@ fun ArOverlayScreen(
 
 // ── AR content (camera + overlay + exit button) ───────────────────────────────
 
+@androidx.annotation.RequiresApi(35)
+private fun applyBrightness(camera: Camera, fraction: Float, maxLevel: Int) {
+    if (maxLevel <= 1) return
+    try {
+        val cam2Control = Camera2CameraControl.from(camera.cameraControl)
+        cam2Control.setCaptureRequestOptions(
+            CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(
+                    android.hardware.camera2.CaptureRequest.FLASH_STRENGTH_LEVEL,
+                    (fraction * maxLevel).toInt().coerceIn(1, maxLevel),
+                )
+                .build()
+        )
+    } catch (e: Exception) {
+        Log.w("ArOverlay", "Failed to set brightness: ${e.message}")
+    }
+}
+
 @Composable
 private fun ArContent(
     azimuth: Float,
     onExitAr: () -> Unit,
 ) {
-    // fovHalfDeg is shared mutable state written by CameraPreview (once the camera
-    // binds and we can query sensor dimensions) and read by CardinalOverlay.
-    // mutableFloatStateOf avoids unnecessary recompositions vs. mutableStateOf<Float>.
     val fovHalfDeg = remember { mutableFloatStateOf(DEFAULT_FOV_HALF_DEG) }
-
-    // Hoisted Camera object — populated once CameraPreview binds successfully.
-    // Exposed here for downstream use (e.g. torch control in Task 3).
     var camera by remember { mutableStateOf<Camera?>(null) }
 
+    // ── Torch state ──────────────────────────────────────────────────────────
+    var isTorchOn by remember { mutableStateOf(false) }
+    var brightnessFraction by remember { mutableFloatStateOf(1f) }
+    var supportsBrightness by remember { mutableStateOf(false) }
+    var maxBrightnessLevel by remember { mutableIntStateOf(0) }
+
+    // Sync local torch state with actual camera torch state
+    camera?.let { cam ->
+        DisposableEffect(cam) {
+            val observer = Observer<Int> { state ->
+                isTorchOn = (state == TorchState.ON)
+            }
+            cam.cameraInfo.torchState.observeForever(observer)
+            onDispose { cam.cameraInfo.torchState.removeObserver(observer) }
+        }
+    }
+
+    // Query brightness support when camera is bound
+    LaunchedEffect(camera) {
+        val cam = camera ?: return@LaunchedEffect
+        if (Build.VERSION.SDK_INT >= 35) {
+            try {
+                val cam2Info = Camera2CameraInfo.from(cam.cameraInfo)
+                val maxLevel = cam2Info.getCameraCharacteristic(
+                    CameraCharacteristics.FLASH_INFO_STRENGTH_MAXIMUM_LEVEL
+                ) ?: 0
+                if (maxLevel > 1) {
+                    supportsBrightness = true
+                    maxBrightnessLevel = maxLevel
+                }
+            } catch (e: Exception) {
+                Log.w("ArOverlay", "Brightness query failed: ${e.message}")
+            }
+        }
+    }
+
+    // Apply brightness whenever fraction changes and torch is on
+    LaunchedEffect(brightnessFraction, isTorchOn) {
+        val cam = camera ?: return@LaunchedEffect
+        if (isTorchOn && supportsBrightness && Build.VERSION.SDK_INT >= 35) {
+            applyBrightness(cam, brightnessFraction, maxBrightnessLevel)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Layer 1 — live camera background; also queries FOV and writes fovHalfDeg
+        // Layer 1 — live camera
         CameraPreview(
-            onFovMeasured  = { measuredHalfFov -> fovHalfDeg.floatValue = measuredHalfFov },
-            onCameraBound  = { camera = it },
-            modifier       = Modifier.fillMaxSize(),
+            onCameraBound = { camera = it },
+            onFovMeasured = { measuredHalfFov -> fovHalfDeg.floatValue = measuredHalfFov },
+            modifier      = Modifier.fillMaxSize(),
         )
 
-        // Layer 2 — cardinal direction labels (FOV-aware positioning)
+        // Layer 2 — cardinal labels
         CardinalOverlay(
             azimuth    = azimuth,
             fovHalfDeg = fovHalfDeg.floatValue,
             modifier   = Modifier.fillMaxSize(),
         )
 
-        // Layer 3 — exit button (top-right, consistent with TopInfoBar placement)
+        // Layer 3 — exit button
         IconButton(
             onClick  = onExitAr,
             modifier = Modifier
@@ -211,16 +274,27 @@ private fun ArContent(
             )
         }
 
-        // Layer 4 — degree + cardinal HUD (top-centre, same vertical zone as the
-        // HeadingReadout on the flat compass screen — just below the icon row).
+        // Layer 4 — heading HUD
         ArHeadingHud(
             azimuth  = azimuth,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 56.dp),   // clears the 48dp IconButton + 8dp top padding
+                .padding(top = 56.dp),
         )
 
-        // Layer 5 — torch bubble (added in Task 3)
+        // Layer 5 — torch bubble (only when camera is available)
+        if (camera != null) {
+            TorchBubble(
+                isTorchOn          = isTorchOn,
+                onToggleTorch      = {
+                    val cam = camera ?: return@TorchBubble
+                    cam.cameraControl.enableTorch(!isTorchOn)
+                },
+                supportsBrightness = supportsBrightness,
+                brightnessFraction = brightnessFraction,
+                onBrightnessChange = { brightnessFraction = it },
+            )
+        }
     }
 }
 
