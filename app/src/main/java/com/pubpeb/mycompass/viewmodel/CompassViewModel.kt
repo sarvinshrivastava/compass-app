@@ -22,15 +22,11 @@ import kotlinx.coroutines.launch
  *
  * Exposed state:
  *  - [azimuth]     – current heading in degrees [0, 360); magnetic or true depending on [trueNorth].
+ *  - [arAzimuth]   – heavily low-pass-filtered heading (α=0.05) for stable AR label positioning.
  *  - [tilt]        – device pitch in degrees (positive = top tilted toward user).
  *  - [roll]        – device roll in degrees (positive = left edge raised).
  *  - [trueNorth]   – toggle between magnetic and true north.
  *  - [declination] – computed magnetic declination (degrees).
- *
- * // TODO Phase 2 – ARCore hook:
- * //   Add an ArSession field here and collect pose updates from ArFrame.getCamera().
- * //   Blend or override azimuth with ARCore's camera-based heading when the session is tracking.
- * //   Expose an `arSessionAvailable: StateFlow<Boolean>` so the UI can show an AR toggle.
  */
 class CompassViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -42,6 +38,19 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
     private val _azimuth = MutableStateFlow(0f)
     val azimuth: StateFlow<Float> = _azimuth.asStateFlow()
+
+    /**
+     * Heavily low-pass-filtered azimuth (second-stage α = 0.05) intended for
+     * AR label positioning. The sensor layer already applies α = 0.15 to the
+     * raw hardware values; this adds a second stage that dramatically reduces
+     * jitter when the phone is held upright during AR mode, at the cost of a
+     * slightly longer settling time (~20 sensor events ≈ 400 ms at SENSOR_DELAY_UI).
+     *
+     * Uses shortest-arc blending to handle the 0°/360° wrap-around correctly —
+     * a naïve weighted average of e.g. 1° and 359° would produce 180° instead of 0°.
+     */
+    private val _arAzimuth = MutableStateFlow(0f)
+    val arAzimuth: StateFlow<Float> = _arAzimuth.asStateFlow()
 
     private val _tilt = MutableStateFlow(0f)
     val tilt: StateFlow<Float> = _tilt.asStateFlow()
@@ -58,18 +67,45 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     private val _sensorAvailable = MutableStateFlow(sensorRepo.isAvailable)
     val sensorAvailable: StateFlow<Boolean> = _sensorAvailable.asStateFlow()
 
+    /**
+     * True when the device is held upright (portrait, camera facing a scene).
+     * Derived from the raw gravity vector in [SensorRepository] — NOT from the remapped
+     * pitch — so it remains accurate even after remapCoordinateSystem() changes orientation[1].
+     * Used by [MainScreen] to auto-trigger AR mode without relying on a pitch threshold.
+     */
+    private val _isUpright = MutableStateFlow(false)
+    val isUpright: StateFlow<Boolean> = _isUpright.asStateFlow()
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
-    /** Raw magnetic azimuth from sensor layer. */
+    /** Raw magnetic azimuth from sensor layer (already lightly filtered at α=0.15). */
     private var magneticAzimuth = 0f
+
+    /**
+     * Heavy second-stage low-pass filter for [arAzimuth].
+     * α = 0.05 → very smooth, ~20 events to reach 63 % of a step change.
+     * Uses shortest-arc blending: find the signed shortest arc from current
+     * to new value (always in (-180, +180]), then scale it by α and add.
+     * This avoids the wrap-around artefact of naïvely mixing degree values.
+     */
+    private var arAzimuthFiltered = 0f
+    private val arAlpha = 0.05f
 
     init {
         sensorRepo.sensorData
             .onEach { data ->
                 magneticAzimuth = data.azimuth
-                _azimuth.value = computeDisplayAzimuth()
+                val display = computeDisplayAzimuth()
+                _azimuth.value = display
+
+                // Second-stage heavy LPF for AR — shortest-arc blend
+                val arc = ((display - arAzimuthFiltered + 540f) % 360f) - 180f
+                arAzimuthFiltered = (arAzimuthFiltered + arAlpha * arc + 360f) % 360f
+                _arAzimuth.value = arAzimuthFiltered
+
                 _tilt.value = data.pitch
                 _roll.value = data.roll
+                _isUpright.value = data.isUpright
             }
             .launchIn(viewModelScope)
     }
@@ -78,7 +114,12 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
     fun toggleTrueNorth() {
         _trueNorth.value = !_trueNorth.value
-        _azimuth.value = computeDisplayAzimuth()
+        val display = computeDisplayAzimuth()
+        _azimuth.value = display
+        // Snap arAzimuth filter to new display value to prevent a slow drift
+        // from the old declination-adjusted value to the new one.
+        arAzimuthFiltered = display
+        _arAzimuth.value = display
     }
 
     /**

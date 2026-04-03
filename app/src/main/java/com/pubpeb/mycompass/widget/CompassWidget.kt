@@ -1,10 +1,12 @@
 package com.pubpeb.mycompass.widget
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -14,10 +16,11 @@ import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
-import androidx.glance.action.actionStartActivity
+import androidx.glance.action.Action
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
+import androidx.glance.appwidget.action.actionSendBroadcast
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -34,18 +37,34 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.pubpeb.mycompass.MainActivity
 import kotlinx.coroutines.flow.firstOrNull
 import kotlin.math.roundToInt
 
-// ── Widget colour palette (android.graphics.Color ints — Glance can't use Compose Color) ─────
-private const val CLR_BG_DEEP    = 0xFF0D0F14.toInt()
+// ── Widget colour palette ──────────────────────────────────────────────────────────────────────
+//
+// TWO sets of constants:
+//  • `CLR_*` — android.graphics.Color ints used by android.graphics.Paint (canvas drawing).
+//  • `CP_*`  — ColorProvider(Color) used by Glance composables.
+//
+// WHY TWO SETS:
+// ColorProvider(Int) treats the integer as an @ColorRes resource ID and passes it to
+// Resources.getColor(), causing a Resources$NotFoundException crash when the launcher
+// tries to inflate the RemoteViews (the int is a raw ARGB value, not a resource ID).
+// The correct Glance API is ColorProvider(androidx.compose.ui.graphics.Color).
+// The canvas Paint API uses android.graphics.Color ints, which is a completely
+// different code path and is correct as-is.
+
+// Canvas paint colours (android.graphics.Color ints)
 private const val CLR_BG_CARD    = 0xFF161A22.toInt()
 private const val CLR_TEXT_MAIN  = 0xFFCCD6F6.toInt()
 private const val CLR_ACCENT_RED = 0xFFE63946.toInt()
-private const val CLR_TEXT_SEC   = 0xFF8090B0.toInt()
 private const val CLR_RING       = 0xFF2A2E38.toInt()
 private const val CLR_CENTER     = 0xFF1E2230.toInt()
+
+// Glance ColorProvider values (androidx.compose.ui.graphics.Color)
+private val CP_BG_DEEP    = ColorProvider(Color(0xFF0D0F14))
+private val CP_TEXT_MAIN  = ColorProvider(Color(0xFFCCD6F6))
+private val CP_ACCENT_RED = ColorProvider(Color(0xFFE63946))
 
 /**
  * Home-screen widget with three responsive size tiers:
@@ -56,13 +75,21 @@ private const val CLR_CENTER     = 0xFF1E2230.toInt()
  * | Medium (2×1) | Cardinal direction + degree number        |
  * | Large  (2×2) | Rotating arrow Bitmap pointing to N + label |
  *
- * Data is read from [widgetDataStore] which is written by [CompassWidgetUpdateWorker]
- * every 15 minutes (WorkManager minimum interval).
+ * Data is read from [widgetDataStore] which is written by [CompassWidgetUpdateWorker].
+ * The worker runs:
+ *  - **Immediately** when the widget is first placed (via [CompassWidgetReceiver.onUpdate])
+ *  - **On tap** — tapping the widget sends [CompassWidgetReceiver.ACTION_REFRESH] which
+ *    enqueues a fresh one-shot sensor read; the widget updates in-place within ~3–5 seconds.
+ *  - **Every 15 minutes** via WorkManager periodic job (OS-enforced minimum interval).
  *
  * ### Glance gotchas
  * - `remember` is NOT supported inside `provideContent { }`. Bitmap is computed
  *   before `provideContent` is called and passed in as a parameter.
- * - Use `android.graphics.Color` ints for [ColorProvider], not `androidx.compose.ui.graphics.Color`.
+ * - Use `ColorProvider(androidx.compose.ui.graphics.Color)` for Glance composables.
+ *   Do NOT pass raw ARGB ints — `ColorProvider(Int)` expects a @ColorRes resource ID
+ *   and causes a `Resources$NotFoundException` crash in the launcher's RemoteViews inflater.
+ *   Raw ARGB ints (`android.graphics.Color`) are only valid for `android.graphics.Paint`.
+ * - `actionSendBroadcast` is in `androidx.glance.appwidget.action`, NOT `androidx.glance.action`.
  */
 class CompassWidget : GlanceAppWidget() {
 
@@ -83,16 +110,23 @@ class CompassWidget : GlanceAppWidget() {
         // Pre-render the arrow bitmap here — Glance composables do NOT support remember {}
         val arrowBmp = drawArrowBitmap(azimuth, sizePx = 280)
 
+        // Build the tap-to-refresh action once — explicit Intent targets this app's
+        // CompassWidgetReceiver so the broadcast is not system-wide.
+        val refreshIntent = Intent(CompassWidgetReceiver.ACTION_REFRESH).apply {
+            setClass(context, CompassWidgetReceiver::class.java)
+        }
+        val refreshAction: Action = actionSendBroadcast(refreshIntent)
+
         provideContent {
             GlanceTheme {
                 val size = LocalSize.current
                 when {
                     size.width >= 180.dp && size.height >= 180.dp ->
-                        LargeContent(arrowBmp, azimuth, cardinal)
+                        LargeContent(arrowBmp, azimuth, cardinal, refreshAction)
                     size.width >= 180.dp ->
-                        MediumContent(azimuth, cardinal)
+                        MediumContent(azimuth, cardinal, refreshAction)
                     else ->
-                        SmallContent(cardinal)
+                        SmallContent(cardinal, refreshAction)
                 }
             }
         }
@@ -102,18 +136,18 @@ class CompassWidget : GlanceAppWidget() {
 // ── Small (1×1): cardinal direction only ─────────────────────────────────────
 
 @androidx.compose.runtime.Composable
-private fun SmallContent(cardinal: String) {
+private fun SmallContent(cardinal: String, refreshAction: Action) {
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ColorProvider(CLR_BG_DEEP))
-            .clickable(actionStartActivity<MainActivity>()),
+            .background(CP_BG_DEEP)
+            .clickable(refreshAction),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = cardinal,
             style = TextStyle(
-                color = ColorProvider(CLR_TEXT_MAIN),
+                color = CP_TEXT_MAIN,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
             ),
@@ -124,20 +158,20 @@ private fun SmallContent(cardinal: String) {
 // ── Medium (2×1): cardinal + degree number ────────────────────────────────────
 
 @androidx.compose.runtime.Composable
-private fun MediumContent(azimuth: Float, cardinal: String) {
+private fun MediumContent(azimuth: Float, cardinal: String, refreshAction: Action) {
     Row(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ColorProvider(CLR_BG_DEEP))
+            .background(CP_BG_DEEP)
             .padding(12.dp)
-            .clickable(actionStartActivity<MainActivity>()),
+            .clickable(refreshAction),
         verticalAlignment = Alignment.CenterVertically,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = cardinal,
             style = TextStyle(
-                color = ColorProvider(CLR_ACCENT_RED),
+                color = CP_ACCENT_RED,
                 fontSize = 34.sp,
                 fontWeight = FontWeight.Bold,
             ),
@@ -146,7 +180,7 @@ private fun MediumContent(azimuth: Float, cardinal: String) {
         Text(
             text = "${azimuth.roundToInt()}°",
             style = TextStyle(
-                color = ColorProvider(CLR_TEXT_MAIN),
+                color = CP_TEXT_MAIN,
                 fontSize = 28.sp,
             ),
         )
@@ -156,13 +190,13 @@ private fun MediumContent(azimuth: Float, cardinal: String) {
 // ── Large (2×2): rotating arrow + label ──────────────────────────────────────
 
 @androidx.compose.runtime.Composable
-private fun LargeContent(arrowBmp: Bitmap, azimuth: Float, cardinal: String) {
+private fun LargeContent(arrowBmp: Bitmap, azimuth: Float, cardinal: String, refreshAction: Action) {
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ColorProvider(CLR_BG_DEEP))
+            .background(CP_BG_DEEP)
             .padding(8.dp)
-            .clickable(actionStartActivity<MainActivity>()),
+            .clickable(refreshAction),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -175,7 +209,7 @@ private fun LargeContent(arrowBmp: Bitmap, azimuth: Float, cardinal: String) {
         Text(
             text = "$cardinal  ${azimuth.roundToInt()}°",
             style = TextStyle(
-                color = ColorProvider(CLR_TEXT_MAIN),
+                color = CP_TEXT_MAIN,
                 fontSize = 14.sp,
             ),
         )

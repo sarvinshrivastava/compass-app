@@ -18,10 +18,9 @@
         android:name="android.hardware.sensor.compass"
         android:required="true" />
 
-    <!-- TODO Phase 2 – ARCore: add uses-feature and uses-permission for camera:
-    <uses-feature android:name="android.hardware.camera.ar" android:required="false" />
+    <!-- Camera — used for AR overlay (CameraX, no ARCore) -->
     <uses-permission android:name="android.permission.CAMERA" />
-    -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -55,6 +54,7 @@
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.pubpeb.mycompass.widget.ACTION_REFRESH" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

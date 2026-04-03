@@ -52,11 +52,6 @@ private val cardinals = mapOf(
  * label always points "up" (toward the top of the screen).
  *
  * Animation: spring physics with medium stiffness for a natural feel.
- *
- * // TODO Phase 2 – ARCore hook:
- * //   Accept an optional `arOverlay: @Composable BoxScope.() -> Unit` parameter
- * //   and render it on top of this Canvas inside a Box so AR anchors can be
- * //   drawn in the same coordinate space.
  */
 @Composable
 fun CompassRose(
@@ -108,9 +103,11 @@ fun CompassRose(
         // ── Rotating rose ─────────────────────────────────────────────────
         // The rose rotates -azimuth so that North stays at the top of the
         // physical display while the device heading changes.
+        // Labels are counter-rotated inside drawCardinalLabels() so their
+        // text glyphs always read upright on screen regardless of rose angle.
         rotate(degrees = -animatedAngle, pivot = center) {
             drawTicks(center, radius)
-            drawCardinalLabels(center, radius)
+            drawCardinalLabels(center, radius, animatedAngle)
         }
 
         // ── Static needle (always points up) ──────────────────────────────
@@ -164,8 +161,21 @@ private fun DrawScope.drawTicks(center: Offset, radius: Float) {
     }
 }
 
-private fun DrawScope.drawCardinalLabels(center: Offset, radius: Float) {
+/**
+ * Draws N/NE/E/SE/S/SW/W/NW labels at their positions on the rose.
+ *
+ * Because this function is called inside a `rotate(-animatedAngle)` block, the
+ * label *positions* orbit correctly around the rose. However, without compensation
+ * the text glyphs would also tilt with the rose, making them hard to read.
+ *
+ * Fix: for each label, save the native canvas state, rotate by +[rotationAngle]
+ * around the label's own (x, y) pivot to cancel the enclosing -[rotationAngle]
+ * transform, draw the text upright, then restore. The label position still tracks
+ * the rose, but the glyph orientation is always screen-aligned.
+ */
+private fun DrawScope.drawCardinalLabels(center: Offset, radius: Float, rotationAngle: Float) {
     val labelRadius = radius * 0.68f
+    val nativeCanvas = drawContext.canvas.nativeCanvas
     val paint = Paint().asFrameworkPaint().apply {
         isAntiAlias = true
         textAlign = android.graphics.Paint.Align.CENTER
@@ -183,15 +193,21 @@ private fun DrawScope.drawCardinalLabels(center: Offset, radius: Float) {
                       else ColorDegreeText.toArgb()
         paint.isFakeBoldText = isMainCardinal
 
-        drawContext.canvas.nativeCanvas.drawText(
+        // Counter-rotate around the label's own position so the glyph stays upright.
+        // The enclosing rotate(-rotationAngle) block has already moved the canvas;
+        // rotating +rotationAngle at (x, y) restores 0° net rotation for the text.
+        nativeCanvas.save()
+        nativeCanvas.rotate(rotationAngle, x, y)
+        nativeCanvas.drawText(
             label,
             x,
             y + paint.textSize / 3f,   // vertically centre the glyph
             paint,
         )
+        nativeCanvas.restore()
     }
 
-    // Draw degree numbers every 30° (skip cardinal positions)
+    // Draw degree numbers every 30° (skip cardinal positions) — also kept upright.
     val degPaint = Paint().asFrameworkPaint().apply {
         isAntiAlias = true
         textAlign = android.graphics.Paint.Align.CENTER
@@ -204,12 +220,15 @@ private fun DrawScope.drawCardinalLabels(center: Offset, radius: Float) {
         val angle = Math.toRadians(deg.toDouble())
         val x = center.x + degRadius * sin(angle).toFloat()
         val y = center.y - degRadius * cos(angle).toFloat()
-        drawContext.canvas.nativeCanvas.drawText(
+        nativeCanvas.save()
+        nativeCanvas.rotate(rotationAngle, x, y)
+        nativeCanvas.drawText(
             deg.toString(),
             x,
             y + degPaint.textSize / 3f,
             degPaint,
         )
+        nativeCanvas.restore()
     }
 }
 

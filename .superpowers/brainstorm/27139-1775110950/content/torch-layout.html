@@ -1,0 +1,118 @@
+<h2>Torch Controls — Layout Style</h2>
+<p class="subtitle">How should the torch on/off button and brightness slider appear on the AR camera screen?</p>
+
+<div class="cards">
+  <!-- Option A: Floating pill -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0D0F14;border-radius:12px;padding:24px;position:relative;height:280px;overflow:hidden;">
+        <!-- Camera BG simulation -->
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a2a1a,#0a1a0a);opacity:0.5;"></div>
+        <!-- Heading HUD -->
+        <div style="position:relative;text-align:center;margin-bottom:20px;">
+          <span style="background:rgba(13,15,20,0.8);padding:6px 16px;border-radius:8px;color:#CCD6F6;font-family:monospace;font-size:14px;">247° <span style="color:#8090B0;margin-left:8px;">SW</span></span>
+        </div>
+        <!-- Floating pill on right edge -->
+        <div style="position:absolute;right:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:12px;">
+          <!-- Torch button -->
+          <div style="width:48px;height:48px;border-radius:50%;background:rgba(13,15,20,0.8);border:1.5px solid #CCD6F6;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:22px;">🔦</span>
+          </div>
+          <!-- Brightness slider (vertical) -->
+          <div style="width:6px;height:100px;border-radius:3px;background:rgba(204,214,246,0.2);position:relative;">
+            <div style="position:absolute;bottom:0;width:100%;height:65%;border-radius:3px;background:linear-gradient(to top,#E63946,#CCD6F6);"></div>
+            <div style="position:absolute;bottom:60%;left:50%;transform:translateX(-50%);width:16px;height:16px;border-radius:50%;background:#CCD6F6;border:2px solid #0D0F14;"></div>
+          </div>
+        </div>
+        <!-- Cardinal labels -->
+        <div style="position:absolute;top:40%;width:100%;display:flex;justify-content:space-around;padding:0 40px;">
+          <span style="color:#E63946;font-weight:600;font-size:13px;background:rgba(13,15,20,0.8);padding:2px 6px;border-radius:4px;">N</span>
+          <span style="color:#8090B0;font-size:11px;background:rgba(13,15,20,0.8);padding:2px 6px;border-radius:4px;">NE</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Floating Vertical Pill</h3>
+      <p>Torch button + vertical brightness slider stacked on the edge. Compact, always accessible. Draggable to snap to left or right edge.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Bottom bar -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0D0F14;border-radius:12px;padding:24px;position:relative;height:280px;overflow:hidden;">
+        <!-- Camera BG simulation -->
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a2a1a,#0a1a0a);opacity:0.5;"></div>
+        <!-- Heading HUD -->
+        <div style="position:relative;text-align:center;margin-bottom:20px;">
+          <span style="background:rgba(13,15,20,0.8);padding:6px 16px;border-radius:8px;color:#CCD6F6;font-family:monospace;font-size:14px;">247° <span style="color:#8090B0;margin-left:8px;">SW</span></span>
+        </div>
+        <!-- Cardinal labels -->
+        <div style="position:absolute;top:40%;width:100%;display:flex;justify-content:space-around;padding:0 20px;">
+          <span style="color:#E63946;font-weight:600;font-size:13px;background:rgba(13,15,20,0.8);padding:2px 6px;border-radius:4px;">N</span>
+          <span style="color:#8090B0;font-size:11px;background:rgba(13,15,20,0.8);padding:2px 6px;border-radius:4px;">NE</span>
+          <span style="color:#CCD6F6;font-size:13px;background:rgba(13,15,20,0.8);padding:2px 6px;border-radius:4px;">E</span>
+        </div>
+        <!-- Bottom bar with torch controls -->
+        <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(13,15,20,0.85);padding:12px 16px;border-radius:0 0 12px 12px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <!-- Torch button -->
+            <div style="width:40px;height:40px;border-radius:50%;background:rgba(204,214,246,0.15);border:1.5px solid #CCD6F6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <span style="font-size:18px;">🔦</span>
+            </div>
+            <!-- Horizontal slider -->
+            <div style="flex:1;height:6px;border-radius:3px;background:rgba(204,214,246,0.2);position:relative;">
+              <div style="width:65%;height:100%;border-radius:3px;background:linear-gradient(to right,#E63946,#CCD6F6);"></div>
+              <div style="position:absolute;left:62%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:#CCD6F6;border:2px solid #0D0F14;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Bottom Control Bar</h3>
+      <p>Torch toggle + horizontal brightness slider in a slim bar at the bottom. Clean and familiar. Draggable to snap top or bottom.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Floating compact bubble -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0D0F14;border-radius:12px;padding:24px;position:relative;height:280px;overflow:hidden;">
+        <!-- Camera BG simulation -->
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a2a1a,#0a1a0a);opacity:0.5;"></div>
+        <!-- Heading HUD -->
+        <div style="position:relative;text-align:center;margin-bottom:20px;">
+          <span style="background:rgba(13,15,20,0.8);padding:6px 16px;border-radius:8px;color:#CCD6F6;font-family:monospace;font-size:14px;">247° <span style="color:#8090B0;margin-left:8px;">SW</span></span>
+        </div>
+        <!-- Cardinal labels -->
+        <div style="position:absolute;top:40%;width:100%;display:flex;justify-content:space-around;padding:0 20px;">
+          <span style="color:#E63946;font-weight:600;font-size:13px;background:rgba(13,15,20,0.8);padding:2px 6px;border-radius:4px;">N</span>
+          <span style="color:#CCD6F6;font-size:13px;background:rgba(13,15,20,0.8);padding:2px 6px;border-radius:4px;">E</span>
+        </div>
+        <!-- Floating bubble on right -->
+        <div style="position:absolute;right:12px;bottom:40px;display:flex;flex-direction:column;align-items:center;gap:0;">
+          <!-- Expanded state: button + arc slider -->
+          <div style="background:rgba(13,15,20,0.85);border-radius:28px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px;border:1px solid rgba(204,214,246,0.15);">
+            <!-- Brightness arc (simplified as vertical bar) -->
+            <div style="width:6px;height:60px;border-radius:3px;background:rgba(204,214,246,0.2);position:relative;">
+              <div style="position:absolute;bottom:0;width:100%;height:50%;border-radius:3px;background:linear-gradient(to top,#E63946,#CCD6F6);"></div>
+            </div>
+            <!-- Torch button -->
+            <div style="width:44px;height:44px;border-radius:50%;background:rgba(230,57,70,0.2);border:1.5px solid #E63946;display:flex;align-items:center;justify-content:center;">
+              <span style="font-size:20px;">🔦</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Expandable Bubble</h3>
+      <p>Compact torch button that expands to reveal brightness slider on tap. Minimizes screen clutter. Draggable to any edge corner.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <p class="subtitle"><strong>All options include:</strong> Edge-snapping drag (user moves controls to preferred edge) • Brightness slider only shown when OS supports torch intensity control • Smooth spring animations</p>
+</div>

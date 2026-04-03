@@ -18,6 +18,8 @@ fun bearingToCardinal(azimuth: Float): String = when {
 /**
  * Returns the full cardinal name for N/E/S/W, abbreviation for inter-cardinals.
  * Used by the compass screen heading display.
+ *
+ * @param azimuth 0–360°, pre-normalized.
  */
 fun bearingToFullLabel(azimuth: Float): String = when {
     azimuth < 22.5f  || azimuth >= 337.5f -> "NORTH"

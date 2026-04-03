@@ -17,10 +17,6 @@ import kotlinx.coroutines.flow.callbackFlow
  *
  * Lifecycle: collect the flow in a coroutine scope tied to the UI; the sensor listener
  * is registered on collection start and unregistered when the flow is cancelled.
- *
- * // TODO Phase 2 – ARCore hook:
- * //   Replace or augment this with ARCore's Frame.getUpdatedTrackables() to get
- * //   camera-based orientation that is independent of sensor hardware quality.
  */
 class SensorRepository(context: Context) {
 
@@ -37,11 +33,12 @@ class SensorRepository(context: Context) {
     val sensorData: Flow<CompassSensorData> = callbackFlow {
 
         // Working buffers — reused across events to minimise allocations.
-        val gravity = FloatArray(3)
-        val geomagnetic = FloatArray(3)
-        val rotationMatrix = FloatArray(9)
+        val gravity         = FloatArray(3)
+        val geomagnetic     = FloatArray(3)
+        val rotationMatrix  = FloatArray(9)
+        val remappedMatrix  = FloatArray(9)
         val inclinationMatrix = FloatArray(9)
-        val orientation = FloatArray(3)
+        val orientation     = FloatArray(3)
 
         // Low-pass filter alpha: 0 = no smoothing, 1 = frozen.
         // A value of 0.15 smooths jitter while remaining responsive.
@@ -74,7 +71,37 @@ class SensorRepository(context: Context) {
                 )
                 if (!success) return
 
-                SensorManager.getOrientation(rotationMatrix, orientation)
+                // ── Coordinate-system remap for portrait/upright mode ─────────────────
+                // When the device is held upright (AR mode, looking at a scene ahead),
+                // gravity aligns with the device Y-axis instead of Z-axis. The default
+                // rotation matrix then maps world-Z to device-Y, causing getOrientation()
+                // to produce a wrong azimuth. Remapping with AXIS_X / AXIS_Z reorients
+                // the matrix so it describes the device in its natural upright frame.
+                //
+                // Upright detection: if the magnitude of the filtered gravity vector's
+                // Y-component exceeds Z-component, the phone is in a portrait-upright
+                // posture and the remap is needed.
+                //
+                // Threshold: |gravity.y| > |gravity.z|  (no hard degree threshold —
+                // continuously determined from the actual sensor gravity projection).
+                val matrixToUse = if (Math.abs(gravity[1]) > Math.abs(gravity[2])) {
+                    // Phone is closer to upright than flat — remap coordinate system.
+                    // AXIS_X keeps the device X-axis (horizontal, right).
+                    // AXIS_Z maps world Z (gravity) to the new Y-axis, letting
+                    // getOrientation() read azimuth correctly for a vertical phone.
+                    val remapSuccess = SensorManager.remapCoordinateSystem(
+                        rotationMatrix,
+                        SensorManager.AXIS_X,
+                        SensorManager.AXIS_Z,
+                        remappedMatrix,
+                    )
+                    if (remapSuccess) remappedMatrix else rotationMatrix
+                } else {
+                    // Phone is flat — standard mapping works as-is.
+                    rotationMatrix
+                }
+
+                SensorManager.getOrientation(matrixToUse, orientation)
 
                 // orientation[0] = azimuth  (radians, -π … π)
                 // orientation[1] = pitch    (radians)
@@ -82,9 +109,19 @@ class SensorRepository(context: Context) {
                 val azimuthDeg = Math.toDegrees(orientation[0].toDouble()).toFloat()
                     .let { if (it < 0) it + 360f else it }
                 val pitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat()
-                val rollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat()
+                val rollDeg  = Math.toDegrees(orientation[2].toDouble()).toFloat()
 
-                trySend(CompassSensorData(azimuthDeg, pitchDeg, rollDeg))
+                // isUpright is derived from the RAW gravity vector, not from the
+                // remapped orientation matrix. After remapCoordinateSystem(AXIS_X, AXIS_Z)
+                // the pitch value in orientation[1] no longer represents the intuitive
+                // "how vertical is the phone" angle, so we bypass it entirely and use
+                // the gravity projection directly: |gravity.y| > |gravity.z| means the
+                // device Y-axis (pointing toward the top of the phone) is more aligned
+                // with gravity than the Z-axis (pointing out of the screen), i.e. the
+                // phone is closer to upright than flat.
+                val isUpright = Math.abs(gravity[1]) > Math.abs(gravity[2])
+
+                trySend(CompassSensorData(azimuthDeg, pitchDeg, rollDeg, isUpright))
             }
         }
 

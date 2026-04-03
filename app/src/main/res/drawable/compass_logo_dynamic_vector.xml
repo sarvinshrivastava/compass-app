@@ -1,0 +1,90 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="#111318"
+        android:pathData="M100,10a90,90 0,1 1,0 180a90,90 0,1 1,0 -180z" />
+
+    <!-- Outer ring -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M100,10a90,90 0,1 1,0 180a90,90 0,1 1,0 -180z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#2A2E38" />
+
+    <!-- Cardinal tick marks -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M100,10L100,26"
+        android:strokeWidth="3"
+        android:strokeColor="#CCD6F6" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M190,100L174,100"
+        android:strokeWidth="3"
+        android:strokeColor="#CCD6F6" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M100,190L100,174"
+        android:strokeWidth="3"
+        android:strokeColor="#CCD6F6" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M10,100L26,100"
+        android:strokeWidth="3"
+        android:strokeColor="#CCD6F6" />
+
+    <!-- Intercardinal tick marks -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M163.6,36.4L152.3,47.7"
+        android:strokeWidth="1.5"
+        android:strokeColor="#4A5060" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M163.6,163.6L152.3,152.3"
+        android:strokeWidth="1.5"
+        android:strokeColor="#4A5060" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M36.4,163.6L47.7,152.3"
+        android:strokeWidth="1.5"
+        android:strokeColor="#4A5060" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M36.4,36.4L47.7,47.7"
+        android:strokeWidth="1.5"
+        android:strokeColor="#4A5060" />
+
+    <!-- Needle group — this gets animated via rotation -->
+    <group
+        android:name="needle"
+        android:pivotX="100"
+        android:pivotY="100"
+        android:rotation="0">
+
+        <!-- North needle (red) -->
+        <path
+            android:fillColor="#E63946"
+            android:pathData="M100,32L93,100L107,100Z" />
+
+        <!-- South needle (silver) -->
+        <path
+            android:fillColor="#CCD6F6"
+            android:pathData="M100,160L93,100L107,100Z" />
+    </group>
+
+    <!-- Center cap (above needle) -->
+    <path
+        android:fillColor="#1E2230"
+        android:pathData="M100,92a8,8 0,1 1,0 16a8,8 0,1 1,0 -16z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M100,92a8,8 0,1 1,0 16a8,8 0,1 1,0 -16z"
+        android:strokeWidth="1.5"
+        android:strokeColor="#CCD6F6" />
+</vector>

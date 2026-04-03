@@ -1,7 +1,6 @@
 package com.pubpeb.mycompass.ui
 
 import android.Manifest
-import com.pubpeb.mycompass.util.bearingToCardinal
 import android.hardware.camera2.CameraCharacteristics
 import android.os.Build
 import android.util.Log
@@ -86,6 +85,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
+import com.pubpeb.mycompass.util.bearingToCardinal
 import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.roundToInt

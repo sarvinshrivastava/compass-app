@@ -1,0 +1,124 @@
+<h2>Drag & Snap Behavior</h2>
+<p class="subtitle">Where should the torch bubble be allowed to snap when the user drags it?</p>
+
+<div class="cards">
+  <!-- Option A: Four corners -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0D0F14;border-radius:12px;position:relative;height:240px;overflow:hidden;">
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a2a1a,#0a1a0a);opacity:0.4;"></div>
+        <!-- Corner indicators -->
+        <div style="position:absolute;top:16px;left:16px;width:40px;height:40px;border-radius:50%;border:2px dashed rgba(204,214,246,0.3);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.4);font-size:10px;">TL</span>
+        </div>
+        <div style="position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;border:2px dashed rgba(204,214,246,0.3);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.4);font-size:10px;">TR</span>
+        </div>
+        <div style="position:absolute;bottom:16px;left:16px;width:40px;height:40px;border-radius:50%;border:2px dashed rgba(204,214,246,0.3);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.4);font-size:10px;">BL</span>
+        </div>
+        <!-- Active position -->
+        <div style="position:absolute;bottom:16px;right:16px;">
+          <div style="background:rgba(13,15,20,0.85);border-radius:28px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px;border:1px solid rgba(230,57,70,0.4);">
+            <div style="width:6px;height:50px;border-radius:3px;background:rgba(204,214,246,0.2);position:relative;">
+              <div style="position:absolute;bottom:0;width:100%;height:50%;border-radius:3px;background:linear-gradient(to top,#E63946,#CCD6F6);"></div>
+            </div>
+            <div style="width:40px;height:40px;border-radius:50%;background:rgba(230,57,70,0.2);border:1.5px solid #E63946;display:flex;align-items:center;justify-content:center;">
+              <span style="font-size:18px;">🔦</span>
+            </div>
+          </div>
+        </div>
+        <!-- Drag arrows -->
+        <svg style="position:absolute;inset:0;width:100%;height:100%;" viewBox="0 0 300 240">
+          <defs><marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="rgba(204,214,246,0.25)"/></marker></defs>
+          <path d="M250,200 C200,200 60,200 56,220" stroke="rgba(204,214,246,0.2)" stroke-width="1.5" fill="none" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+          <path d="M250,200 C250,120 260,40 260,36" stroke="rgba(204,214,246,0.2)" stroke-width="1.5" fill="none" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+          <path d="M250,200 C150,150 56,60 40,36" stroke="rgba(204,214,246,0.2)" stroke-width="1.5" fill="none" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+        </svg>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Four Corners</h3>
+      <p>Bubble snaps to the nearest corner (top-left, top-right, bottom-left, bottom-right). Stays out of the way of both the heading HUD and cardinal labels.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Edge midpoints + corners -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0D0F14;border-radius:12px;position:relative;height:240px;overflow:hidden;">
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a2a1a,#0a1a0a);opacity:0.4;"></div>
+        <!-- All snap points -->
+        <div style="position:absolute;top:16px;left:50%;transform:translateX(-50%);width:36px;height:36px;border-radius:50%;border:2px dashed rgba(204,214,246,0.3);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.4);font-size:9px;">T</span>
+        </div>
+        <div style="position:absolute;top:50%;left:16px;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;border:2px dashed rgba(204,214,246,0.3);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.4);font-size:9px;">L</span>
+        </div>
+        <div style="position:absolute;top:50%;right:16px;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;border:2px dashed rgba(204,214,246,0.3);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.4);font-size:9px;">R</span>
+        </div>
+        <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:36px;height:36px;border-radius:50%;border:2px dashed rgba(204,214,246,0.3);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.4);font-size:9px;">B</span>
+        </div>
+        <!-- Corners too -->
+        <div style="position:absolute;top:16px;left:16px;width:30px;height:30px;border-radius:50%;border:1.5px dashed rgba(204,214,246,0.15);"></div>
+        <div style="position:absolute;top:16px;right:16px;width:30px;height:30px;border-radius:50%;border:1.5px dashed rgba(204,214,246,0.15);"></div>
+        <div style="position:absolute;bottom:16px;left:16px;width:30px;height:30px;border-radius:50%;border:1.5px dashed rgba(204,214,246,0.15);"></div>
+        <div style="position:absolute;bottom:16px;right:16px;width:30px;height:30px;border-radius:50%;border:1.5px dashed rgba(204,214,246,0.15);"></div>
+        <!-- Active at right-center -->
+        <div style="position:absolute;top:50%;right:16px;transform:translateY(-50%);">
+          <div style="background:rgba(13,15,20,0.85);border-radius:28px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px;border:1px solid rgba(230,57,70,0.4);">
+            <div style="width:6px;height:50px;border-radius:3px;background:rgba(204,214,246,0.2);position:relative;">
+              <div style="position:absolute;bottom:0;width:100%;height:50%;border-radius:3px;background:linear-gradient(to top,#E63946,#CCD6F6);"></div>
+            </div>
+            <div style="width:40px;height:40px;border-radius:50%;background:rgba(230,57,70,0.2);border:1.5px solid #E63946;display:flex;align-items:center;justify-content:center;">
+              <span style="font-size:18px;">🔦</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Eight Snap Points</h3>
+      <p>Corners + edge midpoints (8 positions total). Maximum flexibility but more snap positions may feel fiddly on a small screen.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Left/Right edge only -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0D0F14;border-radius:12px;position:relative;height:240px;overflow:hidden;">
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a2a1a,#0a1a0a);opacity:0.4;"></div>
+        <!-- Left edge zone -->
+        <div style="position:absolute;top:0;left:0;bottom:0;width:60px;border-right:2px dashed rgba(204,214,246,0.15);display:flex;align-items:center;justify-content:center;">
+          <span style="color:rgba(204,214,246,0.3);font-size:10px;writing-mode:vertical-rl;">LEFT</span>
+        </div>
+        <!-- Right edge zone (active) -->
+        <div style="position:absolute;top:0;right:0;bottom:0;width:60px;border-left:2px dashed rgba(230,57,70,0.2);display:flex;align-items:center;justify-content:center;">
+        </div>
+        <!-- Active at right, free vertical slide -->
+        <div style="position:absolute;top:55%;right:10px;transform:translateY(-50%);">
+          <div style="background:rgba(13,15,20,0.85);border-radius:28px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px;border:1px solid rgba(230,57,70,0.4);">
+            <div style="width:6px;height:50px;border-radius:3px;background:rgba(204,214,246,0.2);position:relative;">
+              <div style="position:absolute;bottom:0;width:100%;height:50%;border-radius:3px;background:linear-gradient(to top,#E63946,#CCD6F6);"></div>
+            </div>
+            <div style="width:40px;height:40px;border-radius:50%;background:rgba(230,57,70,0.2);border:1.5px solid #E63946;display:flex;align-items:center;justify-content:center;">
+              <span style="font-size:18px;">🔦</span>
+            </div>
+          </div>
+        </div>
+        <!-- Vertical slide indicator -->
+        <svg style="position:absolute;right:5px;top:20%;height:60%;" viewBox="0 0 10 100">
+          <line x1="5" y1="5" x2="5" y2="95" stroke="rgba(204,214,246,0.2)" stroke-width="1.5" stroke-dasharray="3 3"/>
+          <polygon points="2,8 8,8 5,2" fill="rgba(204,214,246,0.2)"/>
+          <polygon points="2,92 8,92 5,98" fill="rgba(204,214,246,0.2)"/>
+        </svg>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Left/Right Edge Rail</h3>
+      <p>Snaps to left or right edge, but slides freely up and down along the edge. Simple, intuitive — like a floating action button. My recommendation.</p>
+    </div>
+  </div>
+</div>

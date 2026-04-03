@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">My Compass</string>
+    <string name="app_name">Compass</string>
     <string name="widget_description">Compass heading widget</string>
 </resources>
