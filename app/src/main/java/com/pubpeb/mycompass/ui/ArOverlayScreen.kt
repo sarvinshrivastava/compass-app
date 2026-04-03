@@ -200,7 +200,7 @@ private fun ArContent(
     onExitAr: () -> Unit,
 ) {
     val fovHalfDeg = remember { mutableFloatStateOf(DEFAULT_FOV_HALF_DEG) }
-    var camera by remember { mutableStateOf<Camera?>(null) }
+    val cameraState = remember { mutableStateOf<Camera?>(null) }
 
     // ── Torch state ──────────────────────────────────────────────────────────
     var isTorchOn by remember { mutableStateOf(false) }
@@ -208,8 +208,15 @@ private fun ArContent(
     var supportsBrightness by remember { mutableStateOf(false) }
     var maxBrightnessLevel by remember { mutableIntStateOf(0) }
 
+    // Turn torch off when AR mode exits
+    DisposableEffect(Unit) {
+        onDispose {
+            cameraState.value?.cameraControl?.enableTorch(false)
+        }
+    }
+
     // Sync local torch state with actual camera torch state
-    camera?.let { cam ->
+    cameraState.value?.let { cam ->
         DisposableEffect(cam) {
             val observer = Observer<Int> { state ->
                 isTorchOn = (state == TorchState.ON)
@@ -220,8 +227,8 @@ private fun ArContent(
     }
 
     // Query brightness support when camera is bound
-    LaunchedEffect(camera) {
-        val cam = camera ?: return@LaunchedEffect
+    LaunchedEffect(cameraState.value) {
+        val cam = cameraState.value ?: return@LaunchedEffect
         if (Build.VERSION.SDK_INT >= 35) {
             try {
                 val cam2Info = Camera2CameraInfo.from(cam.cameraInfo)
@@ -240,7 +247,7 @@ private fun ArContent(
 
     // Apply brightness whenever fraction changes and torch is on
     LaunchedEffect(brightnessFraction, isTorchOn) {
-        val cam = camera ?: return@LaunchedEffect
+        val cam = cameraState.value ?: return@LaunchedEffect
         if (isTorchOn && supportsBrightness && Build.VERSION.SDK_INT >= 35) {
             applyBrightness(cam, brightnessFraction, maxBrightnessLevel)
         }
@@ -249,7 +256,7 @@ private fun ArContent(
     Box(modifier = Modifier.fillMaxSize()) {
         // Layer 1 — live camera
         CameraPreview(
-            onCameraBound = { camera = it },
+            onCameraBound = { cameraState.value = it },
             onFovMeasured = { measuredHalfFov -> fovHalfDeg.floatValue = measuredHalfFov },
             modifier      = Modifier.fillMaxSize(),
         )
@@ -284,11 +291,11 @@ private fun ArContent(
         )
 
         // Layer 5 — torch bubble (only when camera is available)
-        if (camera != null) {
+        if (cameraState.value != null) {
             TorchBubble(
                 isTorchOn          = isTorchOn,
                 onToggleTorch      = {
-                    val cam = camera ?: return@TorchBubble
+                    val cam = cameraState.value ?: return@TorchBubble
                     cam.cameraControl.enableTorch(!isTorchOn)
                 },
                 supportsBrightness = supportsBrightness,

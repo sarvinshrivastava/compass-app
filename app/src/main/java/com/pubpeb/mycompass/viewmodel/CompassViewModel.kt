@@ -120,10 +120,13 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         _trueNorth.value = !_trueNorth.value
         val display = computeDisplayAzimuth()
         _azimuth.value = display
-        // Snap arAzimuth filter to new display value to prevent a slow drift
-        // from the old declination-adjusted value to the new one.
-        arAzimuthFiltered = display
-        _arAzimuth.value = display
+        snapArFilter(display)
+    }
+
+    /** Immediately snaps the AR azimuth filter to [value], preventing slow drift after heading resets. */
+    private fun snapArFilter(value: Float) {
+        arAzimuthFiltered = value
+        _arAzimuth.value = value
     }
 
     /**
