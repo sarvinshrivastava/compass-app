@@ -9,15 +9,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.pubpeb.mycompass.ui.theme.AppColors
 import kotlin.math.cos
@@ -88,10 +93,23 @@ fun CompassRose(
         label = "compassRotation",
     )
 
+    // Capture canvas size so tick paths can be cached between frames
+    val canvasSizePx = remember { mutableStateOf(IntSize.Zero) }
+    val (minorTickPath, majorTickPath, cardinalTickPath) = remember(canvasSizePx.value) {
+        val sz = canvasSizePx.value
+        if (sz == IntSize.Zero) Triple(Path(), Path(), Path())
+        else {
+            val center = Offset(sz.width / 2f, sz.height / 2f)
+            val radius = min(sz.width.toFloat(), sz.height.toFloat()) / 2f * 0.92f
+            buildTickPaths(center, radius)
+        }
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(1f),
+            .aspectRatio(1f)
+            .onSizeChanged { canvasSizePx.value = it },
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = min(size.width, size.height) / 2f * 0.92f
@@ -107,7 +125,10 @@ fun CompassRose(
         // Labels are counter-rotated inside drawCardinalLabels() so their
         // text glyphs always read upright on screen regardless of rose angle.
         rotate(degrees = -animatedAngle, pivot = center) {
-            drawTicks(center, radius)
+            // Draw cached tick paths (rebuilt only on canvas size change)
+            drawPath(minorTickPath,    color = ColorTickMinor,    style = Stroke(width = 0.8f.dp.toPx()))
+            drawPath(majorTickPath,    color = ColorTickMajor,    style = Stroke(width = 1.5f.dp.toPx()))
+            drawPath(cardinalTickPath, color = ColorTickCardinal, style = Stroke(width = 2.5f.dp.toPx()))
             drawCardinalLabels(center, radius, animatedAngle)
         }
 
@@ -127,9 +148,17 @@ fun CompassRose(
 
 // ── Drawing helpers ──────────────────────────────────────────────────────────
 
-private fun DrawScope.drawTicks(center: Offset, radius: Float) {
+/**
+ * Builds three tick-mark Paths (minor, major, cardinal) from the given center and radius.
+ * Called once per canvas size; the result is cached in the composable.
+ */
+private fun buildTickPaths(center: Offset, radius: Float): Triple<Path, Path, Path> {
+    val minorPath    = Path()
+    val majorPath    = Path()
+    val cardinalPath = Path()
+
     for (deg in 0 until 360) {
-        val angle = Math.toRadians(deg.toDouble())
+        val angle      = Math.toRadians(deg.toDouble())
         val isCardinal = deg % 90 == 0
         val isMajor    = deg % 10 == 0
         val tickLen = when {
@@ -137,29 +166,20 @@ private fun DrawScope.drawTicks(center: Offset, radius: Float) {
             isMajor    -> radius * 0.10f
             else       -> radius * 0.05f
         }
-        val strokePx = when {
-            isCardinal -> 2.5f.dp.toPx()
-            isMajor    -> 1.5f.dp.toPx()
-            else       -> 0.8f.dp.toPx()
+        val path = when {
+            isCardinal -> cardinalPath
+            isMajor    -> majorPath
+            else       -> minorPath
         }
-        val color = when {
-            isCardinal -> ColorTickCardinal
-            isMajor    -> ColorTickMajor
-            else       -> ColorTickMinor
-        }
-
         val outerX = center.x + radius * sin(angle).toFloat()
         val outerY = center.y - radius * cos(angle).toFloat()
         val innerX = center.x + (radius - tickLen) * sin(angle).toFloat()
         val innerY = center.y - (radius - tickLen) * cos(angle).toFloat()
-
-        drawLine(
-            color = color,
-            start = Offset(outerX, outerY),
-            end = Offset(innerX, innerY),
-            strokeWidth = strokePx,
-        )
+        path.moveTo(outerX, outerY)
+        path.lineTo(innerX, innerY)
     }
+
+    return Triple(minorPath, majorPath, cardinalPath)
 }
 
 /**
