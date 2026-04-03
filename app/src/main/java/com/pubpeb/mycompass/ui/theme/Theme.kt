@@ -5,6 +5,14 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
+object AppColors {
+    val BgDeep        = Color(0xFF0D0F14)
+    val BgCard        = Color(0xFF161A22)
+    val TextPrimary   = Color(0xFFCCD6F6)
+    val TextSecondary = Color(0xFF8090B0)
+    val AccentRed     = Color(0xFFE63946)
+}
+
 private val DarkColorScheme = darkColorScheme(
     primary         = Color(0xFFCCD6F6),
     onPrimary       = Color(0xFF0D0F14),

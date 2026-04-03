@@ -47,16 +47,17 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.pubpeb.mycompass.util.bearingToFullLabel
+import com.pubpeb.mycompass.ui.theme.AppColors
 import com.pubpeb.mycompass.viewmodel.CompassViewModel
 import kotlin.math.roundToInt
 
 // ── Colour constants ──────────────────────────────────────────────────────────
-private val BgDeep        = Color(0xFF0D0F14)
-private val BgCard        = Color(0xFF161A22)
-private val TextPrimary   = Color(0xFFCCD6F6)
-private val TextSecondary = Color(0xFF8090B0)
-private val AccentGreen   = Color(0xFF4CAF80)
-private val ButtonBg      = Color(0xFF1E2230)
+private val BgDeep        = AppColors.BgDeep
+private val BgCard        = AppColors.BgCard
+private val TextPrimary   = AppColors.TextPrimary
+private val TextSecondary = AppColors.TextSecondary
+private val AccentGreen   = Color(0xFF4CAF80)    // keep — CompassScreen-specific
+private val ButtonBg      = Color(0xFF1E2230)    // keep — CompassScreen-specific
 
 /**
  * Root compass screen — handles the location permission flow then delegates to

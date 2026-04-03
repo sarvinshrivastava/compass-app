@@ -85,6 +85,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
+import com.pubpeb.mycompass.ui.theme.AppColors
 import com.pubpeb.mycompass.util.bearingToCardinal
 import kotlin.math.abs
 import kotlin.math.atan
@@ -92,11 +93,11 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 // ── Colour palette (matches existing screens) ─────────────────────────────────
-private val BgDeep          = Color(0xFF0D0F14)
-private val TextPrimary     = Color(0xFFCCD6F6)
-private val TextSecondary   = Color(0xFF8090B0)
-private val AccentRed       = Color(0xFFE63946)
-private val LabelBackground = Color(0xCC0D0F14)   // BgDeep at 80% alpha
+private val BgDeep          = AppColors.BgDeep
+private val TextPrimary     = AppColors.TextPrimary
+private val TextSecondary   = AppColors.TextSecondary
+private val AccentRed       = AppColors.AccentRed
+private val LabelBackground = Color(0xCC0D0F14)   // BgDeep at 80% alpha — keep hardcoded (alpha variant)
 
 // ── Cardinal direction data ───────────────────────────────────────────────────
 private data class CardinalDir(val angleDeg: Float, val label: String)

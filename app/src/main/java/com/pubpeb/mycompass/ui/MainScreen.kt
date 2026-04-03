@@ -33,15 +33,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pubpeb.mycompass.ui.theme.AppColors
 import com.pubpeb.mycompass.viewmodel.CompassViewModel
 import kotlinx.coroutines.launch
 
 // ── Colours (shared with the rest of the dark palette) ──────────────────────
-private val BgDeep     = Color(0xFF0D0F14)
-private val BgCard     = Color(0xFF161A22)
-private val TextPrimary   = Color(0xFFCCD6F6)
-private val TextSecondary = Color(0xFF8090B0)
-private val IndicatorBg   = Color(0xFF2A3550)
+private val BgDeep        = AppColors.BgDeep
+private val BgCard        = AppColors.BgCard
+private val TextPrimary   = AppColors.TextPrimary
+private val TextSecondary = AppColors.TextSecondary
+private val IndicatorBg   = Color(0xFF2A3550)    // keep — MainScreen-specific
 
 /**
  * Root composable called from [com.pubpeb.mycompass.MainActivity].

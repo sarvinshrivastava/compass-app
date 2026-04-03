@@ -21,12 +21,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pubpeb.mycompass.ui.theme.AppColors
 import com.pubpeb.mycompass.viewmodel.CompassViewModel
 import kotlin.math.roundToInt
 
-private val BgDeep        = Color(0xFF0D0F14)
-private val TextPrimary   = Color(0xFFCCD6F6)
-private val TextSecondary = Color(0xFF8090B0)
+private val BgDeep        = AppColors.BgDeep
+private val TextPrimary   = AppColors.TextPrimary
+private val TextSecondary = AppColors.TextSecondary
 
 /**
  * Full-screen tilt/levelling screen (page 1 in the pager).
