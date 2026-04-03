@@ -93,6 +93,11 @@ private val CP_ACCENT_RED = ColorProvider(Color(0xFFE63946))
  */
 class CompassWidget : GlanceAppWidget() {
 
+    companion object {
+        @Volatile private var cachedBitmap: Bitmap? = null
+        @Volatile private var cachedAzimuth: Float = Float.NaN
+    }
+
     override val sizeMode = SizeMode.Responsive(
         setOf(
             DpSize(100.dp, 100.dp),    // Small  — 1×1
@@ -107,8 +112,14 @@ class CompassWidget : GlanceAppWidget() {
         val azimuth  = prefs?.get(WidgetPrefsKeys.AZIMUTH)  ?: 0f
         val cardinal = prefs?.get(WidgetPrefsKeys.CARDINAL) ?: "N"
 
-        // Pre-render the arrow bitmap here — Glance composables do NOT support remember {}
-        val arrowBmp = drawArrowBitmap(azimuth, sizePx = 280)
+        // Pre-render the arrow bitmap here — Glance composables do NOT support remember {}.
+        // Cache reuse: skip redraw when heading hasn't changed by more than 5°.
+        // DO NOT recycle the old bitmap — Glance may still hold a reference to it.
+        val arrowBmp = cachedBitmap?.takeIf { kotlin.math.abs(azimuth - cachedAzimuth) <= 5f }
+            ?: drawArrowBitmap(azimuth, sizePx = 280).also { bmp ->
+                cachedBitmap = bmp
+                cachedAzimuth = azimuth
+            }
 
         // Build the tap-to-refresh action once — explicit Intent targets this app's
         // CompassWidgetReceiver so the broadcast is not system-wide.

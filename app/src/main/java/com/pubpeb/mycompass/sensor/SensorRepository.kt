@@ -42,7 +42,6 @@ class SensorRepository(context: Context) {
 
         // Low-pass filter alpha: 0 = no smoothing, 1 = frozen.
         // A value of 0.15 smooths jitter while remaining responsive.
-        val alpha = 0.15f
 
         val listener = object : SensorEventListener {
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
@@ -51,14 +50,14 @@ class SensorRepository(context: Context) {
                 when (event.sensor.type) {
                     Sensor.TYPE_ACCELEROMETER -> {
                         // Low-pass filter to reduce noise
-                        gravity[0] = alpha * event.values[0] + (1 - alpha) * gravity[0]
-                        gravity[1] = alpha * event.values[1] + (1 - alpha) * gravity[1]
-                        gravity[2] = alpha * event.values[2] + (1 - alpha) * gravity[2]
+                        gravity[0] = SENSOR_LPF_ALPHA * event.values[0] + (1 - SENSOR_LPF_ALPHA) * gravity[0]
+                        gravity[1] = SENSOR_LPF_ALPHA * event.values[1] + (1 - SENSOR_LPF_ALPHA) * gravity[1]
+                        gravity[2] = SENSOR_LPF_ALPHA * event.values[2] + (1 - SENSOR_LPF_ALPHA) * gravity[2]
                     }
                     Sensor.TYPE_MAGNETIC_FIELD -> {
-                        geomagnetic[0] = alpha * event.values[0] + (1 - alpha) * geomagnetic[0]
-                        geomagnetic[1] = alpha * event.values[1] + (1 - alpha) * geomagnetic[1]
-                        geomagnetic[2] = alpha * event.values[2] + (1 - alpha) * geomagnetic[2]
+                        geomagnetic[0] = SENSOR_LPF_ALPHA * event.values[0] + (1 - SENSOR_LPF_ALPHA) * geomagnetic[0]
+                        geomagnetic[1] = SENSOR_LPF_ALPHA * event.values[1] + (1 - SENSOR_LPF_ALPHA) * geomagnetic[1]
+                        geomagnetic[2] = SENSOR_LPF_ALPHA * event.values[2] + (1 - SENSOR_LPF_ALPHA) * geomagnetic[2]
                     }
                     else -> return
                 }
@@ -140,4 +139,9 @@ class SensorRepository(context: Context) {
     /** True if both required sensors are present on this device. */
     val isAvailable: Boolean
         get() = accelerometer != null && magnetometer != null
+
+    companion object {
+        /** Primary low-pass filter alpha: balances responsiveness vs. jitter. */
+        private const val SENSOR_LPF_ALPHA = 0.15f  // Primary filter: balances responsiveness vs. jitter
+    }
 }

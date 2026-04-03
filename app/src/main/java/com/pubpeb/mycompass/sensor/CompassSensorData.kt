@@ -1,5 +1,7 @@
 package com.pubpeb.mycompass.sensor
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Immutable snapshot delivered by [SensorRepository] on every sensor update.
  *
@@ -11,6 +13,7 @@ package com.pubpeb.mycompass.sensor
  *                  This is the canonical upright flag — it is NOT derived from the remapped
  *                  orientation matrix, so it remains reliable after remapCoordinateSystem().
  */
+@Immutable
 data class CompassSensorData(
     val azimuth: Float = 0f,
     val pitch: Float = 0f,

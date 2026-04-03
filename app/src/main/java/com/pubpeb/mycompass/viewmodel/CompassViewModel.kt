@@ -93,7 +93,6 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
      * This avoids the wrap-around artefact of naïvely mixing degree values.
      */
     private var arAzimuthFiltered = 0f
-    private val arAlpha = 0.05f
 
     init {
         sensorRepo.sensorData
@@ -104,7 +103,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
                 // Second-stage heavy LPF for AR — shortest-arc blend
                 val arc = ((display - arAzimuthFiltered + 540f) % 360f) - 180f
-                arAzimuthFiltered = (arAzimuthFiltered + arAlpha * arc + 360f) % 360f
+                arAzimuthFiltered = (arAzimuthFiltered + AR_SMOOTHING_ALPHA * arc + 360f) % 360f
                 _arAzimuth.value = arAzimuthFiltered
 
                 _tilt.value = data.pitch
@@ -179,5 +178,6 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         private const val TAG = "CompassViewModel"
+        private const val AR_SMOOTHING_ALPHA = 0.05f  // AR: ultra-smooth for stable label positioning
     }
 }
