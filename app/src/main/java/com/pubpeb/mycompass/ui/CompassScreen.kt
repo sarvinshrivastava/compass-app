@@ -1,6 +1,8 @@
 package com.pubpeb.mycompass.ui
 
 import android.Manifest
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +46,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
+import com.pubpeb.mycompass.util.bearingToFullLabel
 import com.pubpeb.mycompass.viewmodel.CompassViewModel
 import kotlin.math.roundToInt
 
@@ -58,14 +62,15 @@ private val ButtonBg      = Color(0xFF1E2230)
  * Root compass screen — handles the location permission flow then delegates to
  * [CompassContent].
  *
- * // TODO Phase 2 – ARCore hook:
- * //   Add an AR-toggle button here that navigates to the ARCore-backed composable
- * //   when `viewModel.arSessionAvailable` is true and the camera permission is granted.
+ * [isArMode] and [onArModeChange] are hoisted to [com.pubpeb.mycompass.ui.MainScreen]
+ * so the pager can disable horizontal swipe while the camera overlay is active.
  */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun CompassScreen(
     viewModel: CompassViewModel = viewModel(),
+    isArMode: Boolean = false,
+    onArModeChange: (Boolean) -> Unit = {},
 ) {
     val locationPermission = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
 
@@ -81,7 +86,11 @@ fun CompassScreen(
     ) {
         when {
             locationPermission.status.isGranted ->
-                CompassContent(viewModel = viewModel)
+                CompassContent(
+                    viewModel      = viewModel,
+                    isArMode       = isArMode,
+                    onArModeChange = onArModeChange,
+                )
             locationPermission.status.shouldShowRationale ->
                 PermissionRationale(onRequest = { locationPermission.launchPermissionRequest() })
             else ->
@@ -93,23 +102,59 @@ fun CompassScreen(
 // ── Main compass UI ───────────────────────────────────────────────────────────
 
 @Composable
-private fun CompassContent(viewModel: CompassViewModel) {
+private fun CompassContent(
+    viewModel: CompassViewModel,
+    isArMode: Boolean,
+    onArModeChange: (Boolean) -> Unit,
+) {
     val azimuth     by viewModel.azimuth.collectAsStateWithLifecycle()
+    val arAzimuth   by viewModel.arAzimuth.collectAsStateWithLifecycle()
     val trueNorth   by viewModel.trueNorth.collectAsStateWithLifecycle()
     val declination by viewModel.declination.collectAsStateWithLifecycle()
 
     var showSettings by remember { mutableStateOf(false) }
 
-    // Settings dialog overlay
+    // Settings dialog sits outside the Crossfade — it's a Dialog overlay and
+    // must not be re-created when the AR/flat mode transitions.
     if (showSettings) {
         SettingsDialog(
-            trueNorth = trueNorth,
-            declination = declination,
+            trueNorth         = trueNorth,
+            declination       = declination,
             onToggleTrueNorth = viewModel::toggleTrueNorth,
-            onDismiss = { showSettings = false },
+            onDismiss         = { showSettings = false },
         )
     }
 
+    // 300 ms crossfade between the flat compass rose and the AR camera overlay.
+    Crossfade(
+        targetState   = isArMode,
+        animationSpec = tween(durationMillis = 300),
+        label         = "arCrossfade",
+    ) { arActive ->
+        if (arActive) {
+            ArOverlayScreen(
+                azimuth  = arAzimuth,   // heavy-filtered (α=0.05) for stable AR labels
+                onExitAr = { onArModeChange(false) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            CompassFlatContent(
+                azimuth         = azimuth,
+                onSettingsClick = { showSettings = true },
+                onEnterAr       = { onArModeChange(true) },
+            )
+        }
+    }
+}
+
+// ── Flat compass layout (rose + readout + top bar) ────────────────────────────
+
+@Composable
+private fun CompassFlatContent(
+    azimuth: Float,
+    onSettingsClick: () -> Unit,
+    onEnterAr: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -118,8 +163,11 @@ private fun CompassContent(viewModel: CompassViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        // ── Top bar: settings icon only (right-aligned) ───────────────────
-        TopInfoBar(onSettingsClick = { showSettings = true })
+        // ── Top bar: camera + settings icons (right-aligned) ──────────────
+        TopInfoBar(
+            onSettingsClick = onSettingsClick,
+            onEnterAr       = onEnterAr,
+        )
 
         // ── Heading readout: centred, just above the rose ─────────────────
         HeadingReadout(azimuth = azimuth)
@@ -127,7 +175,7 @@ private fun CompassContent(viewModel: CompassViewModel) {
         // ── Compass rose (fills remaining horizontal space) ───────────────
         Box(contentAlignment = Alignment.Center) {
             CompassRose(
-                azimuth = azimuth,
+                azimuth  = azimuth,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(8.dp),
@@ -142,17 +190,29 @@ private fun CompassContent(viewModel: CompassViewModel) {
 // ── Top info bar ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun TopInfoBar(onSettingsClick: () -> Unit) {
+private fun TopInfoBar(
+    onSettingsClick: () -> Unit,
+    onEnterAr: () -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier              = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment     = Alignment.CenterVertically,
     ) {
+        // Camera icon — manually enter AR overlay mode
+        IconButton(onClick = onEnterAr) {
+            Icon(
+                imageVector        = Icons.Filled.CameraAlt,
+                contentDescription = "AR overlay",
+                tint               = TextSecondary,
+            )
+        }
+        // Settings icon
         IconButton(onClick = onSettingsClick) {
             Icon(
-                imageVector = Icons.Outlined.Settings,
+                imageVector        = Icons.Outlined.Settings,
                 contentDescription = "Settings",
-                tint = TextSecondary,
+                tint               = TextSecondary,
             )
         }
     }
@@ -172,7 +232,7 @@ private fun HeadingReadout(azimuth: Float) {
             lineHeight = 52.sp,
         )
         Text(
-            text = bearingLabel(azimuth),
+            text = bearingToFullLabel(azimuth),
             color = TextSecondary,
             fontSize = 13.sp,
             letterSpacing = 2.sp,
@@ -326,15 +386,3 @@ private fun PermissionLayout(
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-private fun bearingLabel(azimuth: Float): String = when {
-    azimuth < 22.5f  || azimuth >= 337.5f -> "NORTH"
-    azimuth < 67.5f  -> "NE"
-    azimuth < 112.5f -> "EAST"
-    azimuth < 157.5f -> "SE"
-    azimuth < 202.5f -> "SOUTH"
-    azimuth < 247.5f -> "SW"
-    azimuth < 292.5f -> "WEST"
-    else             -> "NW"
-}

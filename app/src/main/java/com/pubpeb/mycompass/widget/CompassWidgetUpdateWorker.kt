@@ -1,6 +1,7 @@
 package com.pubpeb.mycompass.widget
 
 import android.content.Context
+import com.pubpeb.mycompass.util.bearingToCardinal
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -17,6 +18,7 @@ import androidx.glance.appwidget.updateAll
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -56,7 +58,7 @@ class CompassWidgetUpdateWorker(
         // Persist to DataStore
         applicationContext.widgetDataStore.edit { prefs ->
             prefs[WidgetPrefsKeys.AZIMUTH]  = azimuth
-            prefs[WidgetPrefsKeys.CARDINAL] = cardinalFrom(azimuth)
+            prefs[WidgetPrefsKeys.CARDINAL] = bearingToCardinal(azimuth)
         }
 
         // `updateAll` is a suspend extension from androidx.glance.appwidget that
@@ -133,11 +135,37 @@ class CompassWidgetUpdateWorker(
         private const val WORK_NAME = "compass_widget_update"
 
         /**
-         * Enqueues a periodic 15-minute update. Safe to call on every app launch —
-         * [ExistingPeriodicWorkPolicy.KEEP] leaves an already-running chain untouched.
+         * Enqueues a single immediate sensor-read job.
+         *
+         * Called from two places:
+         * 1. [CompassWidgetReceiver.onUpdate] / [CompassWidgetReceiver.onReceive] — fires
+         *    the moment a widget is placed on the home screen, even before the app is opened.
+         * 2. [enqueuePeriodicWork] — ensures DataStore is populated on every app launch
+         *    in addition to the 15-minute periodic window.
+         *
+         * Safe to call from a BroadcastReceiver — WorkManager enqueues the request and
+         * returns immediately; the sensor work runs in a separate background thread.
+         */
+        fun enqueueOneShot(context: Context) {
+            WorkManager.getInstance(context).enqueue(
+                OneTimeWorkRequestBuilder<CompassWidgetUpdateWorker>().build(),
+            )
+        }
+
+        /**
+         * Enqueues the periodic 15-minute update chain (KEEP policy — safe to call on
+         * every app launch without resetting the timer). Also enqueues an immediate
+         * one-shot so the widget has data from the first app open.
          */
         fun enqueuePeriodicWork(context: Context) {
-            val request = PeriodicWorkRequestBuilder<CompassWidgetUpdateWorker>(
+            val wm = WorkManager.getInstance(context)
+
+            // Immediate read — covers the case where the app is opened before a widget
+            // has been placed (widget receiver fires on placement and also calls this).
+            enqueueOneShot(context)
+
+            // Periodic refresh
+            val periodicRequest = PeriodicWorkRequestBuilder<CompassWidgetUpdateWorker>(
                 repeatInterval = 15,
                 repeatIntervalTimeUnit = TimeUnit.MINUTES,
             ).setConstraints(
@@ -146,24 +174,12 @@ class CompassWidgetUpdateWorker(
                     .build(),
             ).build()
 
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            wm.enqueueUniquePeriodicWork(
                 WORK_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
-                request,
+                periodicRequest,
             )
         }
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-internal fun cardinalFrom(azimuth: Float): String = when {
-    azimuth < 22.5f  || azimuth >= 337.5f -> "N"
-    azimuth < 67.5f  -> "NE"
-    azimuth < 112.5f -> "E"
-    azimuth < 157.5f -> "SE"
-    azimuth < 202.5f -> "S"
-    azimuth < 247.5f -> "SW"
-    azimuth < 292.5f -> "W"
-    else             -> "NW"
-}

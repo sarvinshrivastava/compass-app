@@ -1,6 +1,7 @@
 package com.pubpeb.mycompass.ui
 
 import android.Manifest
+import com.pubpeb.mycompass.util.bearingToCardinal
 import android.hardware.camera2.CameraCharacteristics
 import android.os.Build
 import android.util.Log
@@ -332,7 +333,7 @@ private fun ArHeadingHud(
         )
         Spacer(modifier = Modifier.padding(horizontal = 8.dp))
         // Cardinal label — accent colour for N, primary for others
-        val cardinal = arCardinalLabel(azimuth)
+        val cardinal = bearingToCardinal(azimuth)
         Text(
             text       = cardinal,
             color      = if (cardinal == "N") AccentRed else TextSecondary,
@@ -341,18 +342,6 @@ private fun ArHeadingHud(
             letterSpacing = 2.sp,
         )
     }
-}
-
-/** Cardinal abbreviation for the AR HUD (uses same thresholds as the rest of the app). */
-private fun arCardinalLabel(azimuth: Float): String = when {
-    azimuth < 22.5f  || azimuth >= 337.5f -> "N"
-    azimuth < 67.5f  -> "NE"
-    azimuth < 112.5f -> "E"
-    azimuth < 157.5f -> "SE"
-    azimuth < 202.5f -> "S"
-    azimuth < 247.5f -> "SW"
-    azimuth < 292.5f -> "W"
-    else             -> "NW"
 }
 
 // ── CameraX preview + FOV query ───────────────────────────────────────────────
