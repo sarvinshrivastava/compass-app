@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import com.pubpeb.mycompass.ui.theme.AppColors
 import kotlin.math.sqrt
 
 // ── Design palette ────────────────────────────────────────────────────────────
@@ -23,7 +24,7 @@ private val CrosshairColor = Color(0xFF3A4050)
 private val LevelZoneRing  = Color(0xFF4CAF80)   // green — marks the "flat" target
 private val BubbleOk       = Color(0xFF4CAF80)   // green dot — device is level
 private val BubbleTilted   = Color(0xFFE6A817)   // amber dot — tilted but usable
-private val BubbleCritical = Color(0xFFE63946)   // red dot  — heavily tilted
+private val BubbleCritical = AppColors.AccentRed // red dot  — heavily tilted
 
 /**
  * Circular bubble-level that tracks both [pitchDegrees] (tilt front/back) and

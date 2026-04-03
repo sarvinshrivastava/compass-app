@@ -14,13 +14,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.pubpeb.mycompass.ui.theme.AppColors
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val TrackColor   = Color(0xFF2A2E38)
 private val FillOk       = Color(0xFF4CAF80)    // green — device is reasonably flat
 private val FillWarning  = Color(0xFFE6A817)    // amber — moderate tilt
-private val FillCritical = Color(0xFFE63946)    // red   — very tilted, accuracy degrades
+private val FillCritical = AppColors.AccentRed  // red   — very tilted, accuracy degrades
 
 /**
  * Horizontal bar that visualises device tilt (pitch).
@@ -77,7 +78,7 @@ fun TiltIndicator(
 
         // Centre mark
         drawLine(
-            color = Color(0xFF8090B0),
+            color = AppColors.TextSecondary,
             start = Offset(size.width / 2f, 0f),
             end = Offset(size.width / 2f, size.height),
             strokeWidth = Stroke.HairlineWidth,

@@ -14,14 +14,14 @@ object AppColors {
 }
 
 private val DarkColorScheme = darkColorScheme(
-    primary         = Color(0xFFCCD6F6),
-    onPrimary       = Color(0xFF0D0F14),
+    primary         = AppColors.TextPrimary,
+    onPrimary       = AppColors.BgDeep,
     primaryContainer = Color(0xFF1E2230),
-    background      = Color(0xFF0D0F14),
-    surface         = Color(0xFF161A22),
-    onSurface       = Color(0xFFCCD6F6),
-    onBackground    = Color(0xFFCCD6F6),
-    error           = Color(0xFFE63946),
+    background      = AppColors.BgDeep,
+    surface         = AppColors.BgCard,
+    onSurface       = AppColors.TextPrimary,
+    onBackground    = AppColors.TextPrimary,
+    error           = AppColors.AccentRed,
 )
 
 @Composable

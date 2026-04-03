@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import com.pubpeb.mycompass.ui.theme.AppColors
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -27,14 +28,14 @@ import kotlin.math.sin
 private val ColorBackground   = Color(0xFF111318)
 private val ColorRing         = Color(0xFF2A2E38)
 private val ColorTickMinor    = Color(0xFF4A5060)
-private val ColorTickMajor    = Color(0xFF8090B0)
-private val ColorTickCardinal = Color(0xFFCCD6F6)
-private val ColorNeedleNorth  = Color(0xFFE63946)
-private val ColorNeedleSouth  = Color(0xFFCCD6F6)
+private val ColorTickMajor    = AppColors.TextSecondary
+private val ColorTickCardinal = AppColors.TextPrimary
+private val ColorNeedleNorth  = AppColors.AccentRed
+private val ColorNeedleSouth  = AppColors.TextPrimary
 private val ColorCenter       = Color(0xFF1E2230)
-private val ColorDegreeText   = Color(0xFFCCD6F6)
+private val ColorDegreeText   = AppColors.TextPrimary
 private val ColorCardinalText = Color(0xFFFFFFFF)
-private val ColorNorthLabel   = Color(0xFFE63946)
+private val ColorNorthLabel   = AppColors.AccentRed
 
 private val cardinals = mapOf(
     0f   to "N",
