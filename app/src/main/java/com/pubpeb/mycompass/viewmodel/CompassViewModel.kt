@@ -4,18 +4,22 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.location.Location
 import android.hardware.GeomagneticField
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pubpeb.mycompass.sensor.SensorRepository
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Holds compass state and bridges [SensorRepository] → Compose UI.
@@ -131,22 +135,30 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 val cts = CancellationTokenSource()
-                fusedLocationClient
-                    .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, cts.token)
-                    .addOnSuccessListener { location: Location? ->
-                        location ?: return@addOnSuccessListener
-                        val geoField = GeomagneticField(
-                            location.latitude.toFloat(),
-                            location.longitude.toFloat(),
-                            location.altitude.toFloat(),
-                            System.currentTimeMillis(),
-                        )
-                        _declination.value = geoField.declination
-                        // Recompute displayed heading with new declination
-                        _azimuth.value = computeDisplayAzimuth()
-                    }
+                val location = suspendCancellableCoroutine<Location?> { cont ->
+                    fusedLocationClient
+                        .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, cts.token)
+                        .addOnSuccessListener { cont.resume(it) }
+                        .addOnFailureListener { cont.resumeWithException(it) }
+                        .addOnCanceledListener { cont.cancel() }
+                    cont.invokeOnCancellation { cts.cancel() }
+                }
+                location ?: run {
+                    Log.d(TAG, "updateDeclination: GPS fix returned null, using magnetic north")
+                    return@launch
+                }
+                val geoField = GeomagneticField(
+                    location.latitude.toFloat(),
+                    location.longitude.toFloat(),
+                    location.altitude.toFloat(),
+                    System.currentTimeMillis(),
+                )
+                _declination.value = geoField.declination
+                _azimuth.value = computeDisplayAzimuth()
             } catch (_: SecurityException) {
-                // Permission was revoked between grant and this call — safe to ignore.
+                // Permission was revoked between grant and call — safe to ignore.
+            } catch (e: Exception) {
+                Log.w(TAG, "updateDeclination failed: ${e.message}")
             }
         }
     }
@@ -160,5 +172,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             magneticAzimuth
         }
         return raw
+    }
+
+    companion object {
+        private const val TAG = "CompassViewModel"
     }
 }
