@@ -114,9 +114,11 @@ class CompassWidget : GlanceAppWidget() {
 
         // Pre-render the arrow bitmap here — Glance composables do NOT support remember {}.
         // Cache reuse: skip redraw when heading hasn't changed by more than 5°.
-        // DO NOT recycle the old bitmap — Glance may still hold a reference to it.
+        // Glance serialises the bitmap into RemoteViews before provideGlance returns,
+        // so it is safe to recycle the previous bitmap when we create a replacement.
         val arrowBmp = cachedBitmap?.takeIf { kotlin.math.abs(azimuth - cachedAzimuth) <= 5f }
             ?: drawArrowBitmap(azimuth, sizePx = 280).also { bmp ->
+                cachedBitmap?.recycle()
                 cachedBitmap = bmp
                 cachedAzimuth = azimuth
             }

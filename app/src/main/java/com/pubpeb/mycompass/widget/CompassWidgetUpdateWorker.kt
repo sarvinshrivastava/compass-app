@@ -1,7 +1,6 @@
 package com.pubpeb.mycompass.widget
 
 import android.content.Context
-import com.pubpeb.mycompass.util.bearingToCardinal
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -22,6 +21,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.pubpeb.mycompass.util.bearingToCardinal
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.TimeUnit

@@ -83,7 +83,7 @@ class SensorRepository(context: Context) {
                 //
                 // Threshold: |gravity.y| > |gravity.z|  (no hard degree threshold —
                 // continuously determined from the actual sensor gravity projection).
-                val matrixToUse = if (Math.abs(gravity[1]) > Math.abs(gravity[2])) {
+                val matrixToUse = if (kotlin.math.abs(gravity[1]) > kotlin.math.abs(gravity[2])) {
                     // Phone is closer to upright than flat — remap coordinate system.
                     // AXIS_X keeps the device X-axis (horizontal, right).
                     // AXIS_Z maps world Z (gravity) to the new Y-axis, letting
@@ -118,7 +118,7 @@ class SensorRepository(context: Context) {
                 // device Y-axis (pointing toward the top of the phone) is more aligned
                 // with gravity than the Z-axis (pointing out of the screen), i.e. the
                 // phone is closer to upright than flat.
-                val isUpright = Math.abs(gravity[1]) > Math.abs(gravity[2])
+                val isUpright = kotlin.math.abs(gravity[1]) > kotlin.math.abs(gravity[2])
 
                 trySend(CompassSensorData(azimuthDeg, pitchDeg, rollDeg, isUpright))
             }
