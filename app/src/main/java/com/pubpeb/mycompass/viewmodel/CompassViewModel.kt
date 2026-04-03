@@ -158,7 +158,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             } catch (_: SecurityException) {
                 // Permission was revoked between grant and call — safe to ignore.
             } catch (e: Exception) {
-                Log.w(TAG, "updateDeclination failed: ${e.message}")
+                Log.w(TAG, "updateDeclination failed", e)
             }
         }
     }
