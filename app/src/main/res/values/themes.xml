@@ -1,10 +1,13 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Activity window theme — no action bar, full-screen dark background.
-         Compose controls all UI chrome; this only covers the window itself. -->
-    <style name="Theme.MyCompass" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="android:windowBackground">@color/bg_deep</item>
+    <!-- Light window theme. This covers the window itself only — Compose owns
+         every pixel above it — but it is what the user sees during the launch
+         window, so it has to agree with the palette Compose is about to draw.
+         MainActivity re-derives the bar icon tint at runtime, because Daylight
+         mode can force a light palette while the system is in dark mode. -->
+    <style name="Theme.Compass" parent="Theme.Material3.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg_light</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
     </style>
 </resources>
