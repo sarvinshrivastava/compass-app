@@ -59,7 +59,11 @@ captures/
 .cxx/
 
 # Google Services (e.g. Maps API key, Firebase)
-# google-services.json
+# Firebase config. Google documents this as non-secret (its key is restricted
+# by package name + signing cert), but the repo's visibility is not verifiable
+# from here and a key committed to history cannot be un-committed. Keep it
+# local. Setup instructions for obtaining it live in README.md.
+app/google-services.json
 
 # Freeline
 bin/

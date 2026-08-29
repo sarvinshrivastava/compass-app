@@ -2,19 +2,31 @@
 <!--
     App Widget provider metadata.
 
-    targetCellWidth/Height (API 31+): default grid size shown in the widget picker.
-    minWidth/minHeight: fallback for Android 10 and below (API 24–30).
-    updatePeriodMillis = 0: WorkManager handles refresh; system-level polling is disabled.
-    resizeMode: user can resize in both directions to unlock medium and large tiers.
+    targetCellWidth/Height (API 31+): the size the picker places by default.
+    2x1 is the tile's real shape — mark plus wordmark. The old 1x1 default
+    dropped users into the weakest variant, a bare icon.
+    minWidth/minHeight: the same default for API 24–30, which has no cell API.
+    minResizeWidth/Height: how far down a user may drag it. The floor must not
+    fall below the SMALLEST responsive breakpoint (60x60dp) — at the old 40dp a
+    user could shrink the tile past every layout it has, and Glance would render
+    the 60dp tier clipped inside a 40dp host.
+    updatePeriodMillis = 0: the tile shows no live data, so it never needs to
+    be woken. Nothing refreshes it and nothing should.
+    previewLayout / previewImage: the picker renders a real tile instead of
+    the app icon on a blank square.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="40dp"
-    android:minHeight="40dp"
-    android:targetCellWidth="1"
+    android:minWidth="110dp"
+    android:minHeight="60dp"
+    android:minResizeWidth="60dp"
+    android:minResizeHeight="60dp"
+    android:targetCellWidth="2"
     android:targetCellHeight="1"
     android:maxResizeWidth="250dp"
     android:maxResizeHeight="250dp"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen"
+    android:previewLayout="@layout/widget_preview"
+    android:previewImage="@drawable/compass_logo_static"
     android:description="@string/widget_description" />

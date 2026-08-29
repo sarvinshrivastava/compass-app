@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Window / splash background — must match Compose BgDeep -->
-    <color name="bg_deep">#FF0D0F14</color>
+    <!-- Window / splash backgrounds — must match the Compose palettes in
+         ui/theme/Theme.kt, or the launch window flashes the wrong ground
+         colour before the first Compose frame lands. -->
+    <color name="bg_deep">#FF0D0F14</color>   <!-- NightPalette.bgDeep -->
+    <color name="bg_light">#FFF2F3F6</color>  <!-- DayPalette.bgDeep -->
+
+    <!-- The one fixed brand colour: the compass mark's red. Mirrored in
+         CompassWidget.kt, which cannot read a colour resource through
+         Glance's ColorProvider without the @ColorRes overload's crash trap. -->
+    <color name="brand_red">#FFE63946</color>
+
     <color name="white">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
 </resources>
