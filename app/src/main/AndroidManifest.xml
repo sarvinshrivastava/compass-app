@@ -52,9 +52,18 @@
 
         <!-- ── Analytics collection scope ──────────────────────────────────
              Firebase collects the advertising ID and sets ad-personalisation
-             signals by default. Neither is wanted here: the six events exist to
-             decide what to delete, not to build an audience, and switching both
+             signals by default, and logs a screen_view on every screen
+             transition. None of that is wanted here: the seven events exist to
+             decide what to delete, not to build an audience, and switching them
              off keeps the Play Data Safety answers at "not linked to identity".
+
+             Screen reporting is off deliberately. The privacy policy states
+             that the app logs no screen views, and without this flag that
+             sentence is false — Firebase's default is on. Note that the
+             standard lifecycle events (first_open, session_start,
+             user_engagement, app_update, app_remove, app_exception) cannot be
+             disabled and are still sent; they fall under the App interactions
+             type this app already declares.
         -->
         <meta-data
             android:name="google_analytics_adid_collection_enabled"
@@ -64,6 +73,9 @@
             android:value="false" />
         <meta-data
             android:name="google_analytics_default_allow_ad_user_data"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_automatic_screen_reporting_enabled"
             android:value="false" />
 
         <!-- ── Main activity ──────────────────────────────────────────────── -->

@@ -453,7 +453,7 @@ Build and artifact
 - [ ] `./gradlew test` passes
 - [ ] Built with `COMPASS_RELEASE=1` so the Crashlytics mapping uploads
 - [ ] `mapping.txt` archived outside `build/`, named by versionCode (S9)
-- [ ] `versionCode` incremented and never reused (currently 2; must strictly increase forever)
+- [ ] `versionCode` incremented and never reused (**currently 1**, set for the first release; must strictly increase forever, and Play retires a code permanently once ANY track has seen it)
 
 Verified already — no action needed
 - [x] AAB produced, 8.1 MB (`app/build/outputs/bundle/release/app-release.aab`)

@@ -182,7 +182,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
 
-    // Firebase — Crashlytics for stability, Analytics for the six product events.
+    // Firebase — Crashlytics for stability, Analytics for the seven product events.
     // Both are free at unlimited volume on the Spark plan.
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.crashlytics)

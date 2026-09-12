@@ -54,12 +54,13 @@
   permission. The readings are used to draw the screen and are discarded
   immediately. They are never written to storage and never leave the device.</p>
 
-  <h3>Approximate location</h3>
+  <h3>The location fix used for true north</h3>
   <p>Magnetic north and true north differ by an angle called magnetic
-  declination, which depends on where you are standing. If — and only if — you
-  tap the <code>MAG</code> label and grant the permission, the app asks Google
-  Play services for a single coarse position fix, uses it to compute that one
-  correction angle, and keeps only the angle.</p>
+  declination, which depends on where you are standing. True north is on by
+  default, so if you grant the location permission the app asks Google Play
+  services for a single coarse position fix once per launch, uses it to compute
+  that one correction angle, and keeps only the angle. Decline the permission,
+  or switch the reading back to <code>MAG</code>, and no fix is requested.</p>
   <ul>
     <li>The permission requested is <code>ACCESS_COARSE_LOCATION</code>, not
     the precise variant. Declination changes by roughly a degree over tens of
@@ -95,9 +96,10 @@
 
   <h3>Firebase Analytics — seven anonymous counters</h3>
   <p>These exist to answer one question: which parts of the app earn their
-  place. They are deliberately coarse. There are no screen views, no button
-  taps, no funnels, no session replay, and no name, email address or account
-  of any kind. The complete list is:</p>
+  place. They are deliberately coarse. There are no button taps, no funnels,
+  no session replay, and no name, email address or account of any kind.
+  Automatic screen-view logging is switched off. The events this app sends
+  itself are:</p>
 
   <div class="scroller">
   <table>
@@ -152,9 +154,11 @@
   <ul>
     <li><strong>An app-instance ID.</strong> Firebase Analytics assigns each
     installation a random identifier and attaches it to the counters above. It
-    is not your name, your account or your advertising ID, it is not shared
-    with anyone, and it is destroyed when you uninstall the app. Google Play
-    classifies it as a device identifier, and this app declares it as one.</li>
+    is not your name, your account or your advertising ID, and it is not
+    shared with anyone. Reinstalling the app produces a new one, though counts
+    already recorded under the old identifier are not thereby removed. Google
+    Play classifies it as a device identifier, and this app declares it as
+    one.</li>
     <li><strong>Coarse location derived from your IP address.</strong> Every
     network request carries an IP address, and Google derives an approximate
     location from a masked version of it on their servers — typically a city
@@ -172,10 +176,12 @@
   <h3>Firebase Crashlytics — crash diagnostics</h3>
   <p>When the app crashes or detects that the sensors have gone silent, a
   diagnostic report is sent so the fault can be found and fixed. A report
-  contains the stack trace, your device model, its Android version, the app
-  version, and one extra field recording whether the magnetometer was healthy
-  at the moment of failure. It contains no personal data, no location and no
-  camera data.</p>
+  contains, among other standard diagnostics, the stack trace, your device
+  model, its Android version and free memory, the app version, a Crashlytics
+  installation identifier that ties reports from the same install together,
+  and one extra field recording whether the magnetometer was healthy at the
+  moment of failure. It contains no personal data, no location and no camera
+  data.</p>
 
   <h2>What the app never does</h2>
   <ul>
