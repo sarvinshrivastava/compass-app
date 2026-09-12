@@ -5,6 +5,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -78,8 +79,10 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.pubpeb.compass.ui.theme.appColors
 import com.pubpeb.compass.Constants
+import com.pubpeb.compass.util.PermissionAskLog
 import com.pubpeb.compass.util.bearingToCardinal
 import com.pubpeb.compass.util.normalizedHeading
+import com.pubpeb.compass.util.openAppSettings
 import com.pubpeb.compass.util.shortestArcDelta
 import kotlin.math.abs
 import kotlin.math.atan
@@ -133,7 +136,31 @@ fun ArOverlayScreen(
     onExitAr: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val cameraPermission = rememberPermissionState(Manifest.permission.CAMERA)
+
+    // Mirrors the persisted "we have asked" marker so that flipping it
+    // recomposes this screen. The persisted value is the source of truth; this
+    // is only its observable shadow for the current composition.
+    var hasAsked by remember {
+        mutableStateOf(PermissionAskLog.hasAsked(context, Manifest.permission.CAMERA))
+    }
+
+    val requestCamera = {
+        PermissionAskLog.recordAsked(context, Manifest.permission.CAMERA)
+        hasAsked = true
+        cameraPermission.launchPermissionRequest()
+    }
+
+    // Denied twice on Android 11+ means denied for good: isGranted is false and
+    // shouldShowRationale is ALSO false, which is indistinguishable from the
+    // never-asked state without the marker above. Left conflated, this screen
+    // showed first-run copy and a "Grant Camera" button that the system
+    // auto-denies without ever drawing a dialog — a control that visibly does
+    // nothing, forever.
+    val permanentlyDenied = !cameraPermission.status.isGranted &&
+        !cameraPermission.status.shouldShowRationale &&
+        hasAsked
 
     // AR is a mode, not a screen, so the system back gesture must leave the mode.
     // Without this, back fell through to the activity and quit the app from what
@@ -151,13 +178,24 @@ fun ArOverlayScreen(
                     onExitAr     = onExitAr,
                 )
 
+            permanentlyDenied ->
+                CameraPermissionLayout(
+                    title       = "Camera Is Turned Off",
+                    body        = "Camera access for this app is switched off in system " +
+                                  "settings, so the AR overlay cannot start. You can turn it " +
+                                  "back on from there. The flat compass works either way.",
+                    buttonLabel = "Open Settings",
+                    onRequest   = { context.openAppSettings() },
+                    onExitAr    = onExitAr,
+                )
+
             cameraPermission.status.shouldShowRationale ->
                 CameraPermissionLayout(
                     title       = "Camera Needed for AR",
                     body        = "Camera access is required to show the AR compass overlay. " +
                                   "Without it the flat compass rose is still available.",
                     buttonLabel = "Allow Camera",
-                    onRequest   = { cameraPermission.launchPermissionRequest() },
+                    onRequest   = requestCamera,
                     onExitAr    = onExitAr,
                 )
 
@@ -167,7 +205,7 @@ fun ArOverlayScreen(
                     body        = "The AR overlay uses your camera to show cardinal directions " +
                                   "over the live scene. Your camera feed is never stored or transmitted.",
                     buttonLabel = "Grant Camera",
-                    onRequest   = { cameraPermission.launchPermissionRequest() },
+                    onRequest   = requestCamera,
                     onExitAr    = onExitAr,
                 )
         }
@@ -183,9 +221,11 @@ private fun ArContent(
     cameraElevationDeg: Float,
     onExitAr: () -> Unit,
 ) {
+    val c = appColors
     var fovHalfDeg by remember { mutableFloatStateOf(Constants.Ar.DEFAULT_FOV_HALF_DEG) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var isTorchOn by remember { mutableStateOf(false) }
+    var cameraFailed by remember { mutableStateOf(false) }
 
     // Leaving AR must not leave the torch burning behind the compass rose.
     DisposableEffect(Unit) {
@@ -209,6 +249,7 @@ private fun ArContent(
         CameraPreview(
             onCameraBound = { camera = it },
             onFovMeasured = { measuredHalfFov -> fovHalfDeg = measuredHalfFov },
+            onBindFailed  = { cameraFailed = true },
             modifier      = Modifier.fillMaxSize(),
         )
 
@@ -243,6 +284,23 @@ private fun ArContent(
                     .align(Alignment.TopCenter)
                     .padding(top = 8.dp),
             )
+
+            // The labels keep tracking on a dead preview, which reads as a
+            // broken AR mode rather than an unavailable camera. Say which.
+            if (cameraFailed) {
+                Text(
+                    text       = "Camera unavailable.\nAnother app may be using it.",
+                    color      = c.textPrimary,
+                    fontSize   = 15.sp,
+                    textAlign  = TextAlign.Center,
+                    lineHeight = 22.sp,
+                    modifier   = Modifier
+                        .align(Alignment.Center)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(c.chipBg, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                )
+            }
 
             // Torch only exists if a camera actually bound.
             camera?.let { cam ->
@@ -382,10 +440,22 @@ private fun ArHeadingHud(
  * @param onCameraBound  Called once with the bound [Camera] object so the caller
  *                       can hoist it for downstream use (e.g. torch control).
  */
+// The FOV query below reads CameraCharacteristics through Camera2 interop, which
+// CameraX marks experimental. Every AR label's position depends on it, so the
+// opt-in is acknowledged here rather than suppressed project-wide: if a CameraX
+// bump changes this API, the compiler must be able to say so at this call site.
+//
+// androidx.annotation.OptIn, fully qualified, NOT kotlin.OptIn. The marker is a
+// Java @RequiresOptIn, so kotlin.OptIn compiles but leaves lint's
+// UnsafeOptInUsageError unsatisfied — which is what fails `./gradlew lint`. It
+// is spelled out here because kotlin.OptIn is also in use in this file, at the
+// permission gate above.
+@androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
 @Composable
 private fun CameraPreview(
     onFovMeasured: (halfFovDeg: Float) -> Unit,
     onCameraBound: (Camera) -> Unit,
+    onBindFailed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context        = LocalContext.current
@@ -401,11 +471,23 @@ private fun CameraPreview(
 
     // Bind the camera exactly once per lifecycle owner; unbind on disposal.
     DisposableEffect(lifecycleOwner) {
+        // The provider future can resolve AFTER this effect is disposed — the
+        // user leaves AR before the camera service answers. Unguarded, that late
+        // listener binds the camera to a composition that is already gone: the
+        // privacy indicator stays lit, the battery drains, other apps see the
+        // camera as in use, and nothing is left alive to unbind it. It also
+        // defeats the torch-off cleanup, which reads a `camera` that was still
+        // null when dispose ran.
+        var disposed = false
+        var boundProvider: ProcessCameraProvider? = null
+
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener(
             {
+                if (disposed) return@addListener
                 try {
                     val provider = future.get()
+                    boundProvider = provider
                     val preview  = Preview.Builder().build()
                         .also { it.setSurfaceProvider(previewView.surfaceProvider) }
                     provider.unbindAll()
@@ -454,18 +536,26 @@ private fun CameraPreview(
                         onFovMeasured(Constants.Ar.DEFAULT_FOV_HALF_DEG)
                     }
                 } catch (e: Exception) {
-                    // Emulator or camera-less device: preview blank, labels still work
+                    // Another app holds the camera, the device has no back
+                    // camera, or the HAL errored. All three used to leave the
+                    // user staring at a black screen with cardinal labels
+                    // floating on it and no explanation; the caller now says so.
                     Log.w("ArOverlay", "Camera bind failed", e)
                     onFovMeasured(Constants.Ar.DEFAULT_FOV_HALF_DEG)
+                    onBindFailed()
                 }
             },
             ContextCompat.getMainExecutor(context),
         )
 
         onDispose {
-            try {
-                ProcessCameraProvider.getInstance(context).get().unbindAll()
-            } catch (_: Exception) { }
+            disposed = true
+            // Never ListenableFuture.get() here. onDispose runs on the main
+            // thread and get() blocks it with no timeout — on a first
+            // initialisation that has not resolved, or a wedged camera service,
+            // that is an ANR on the way OUT of AR. The already-resolved provider
+            // is captured above precisely so this path never blocks.
+            boundProvider?.unbindAll()
         }
     }
 

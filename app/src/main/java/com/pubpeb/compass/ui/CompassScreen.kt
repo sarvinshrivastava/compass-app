@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -57,8 +58,10 @@ import com.pubpeb.compass.sensor.CompassAccuracy
 import com.pubpeb.compass.ui.theme.AppPalette
 import com.pubpeb.compass.ui.theme.ThemeMode
 import com.pubpeb.compass.ui.theme.appColors
+import com.pubpeb.compass.util.PermissionAskLog
 import com.pubpeb.compass.util.bearingToFullLabel
 import com.pubpeb.compass.util.normalizedHeading
+import com.pubpeb.compass.util.openAppSettings
 import com.pubpeb.compass.viewmodel.CompassViewModel
 
 /**
@@ -85,8 +88,27 @@ fun CompassScreen(
     onArModeChange: (Boolean) -> Unit = {},
 ) {
     val c = appColors
+    val context = LocalContext.current
     val locationPermission = rememberPermissionState(Manifest.permission.ACCESS_COARSE_LOCATION)
     val locationGranted = locationPermission.status.isGranted
+
+    // Observable shadow of the persisted "we have asked" marker; the stored
+    // value survives process death, this makes a change to it recompose.
+    var hasAsked by remember {
+        mutableStateOf(
+            PermissionAskLog.hasAsked(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+        )
+    }
+
+    // Denied twice is denied for good, and the platform reports that state as
+    // "not granted, no rationale" — the same pair it reports before the first
+    // ask. Without the marker the two are indistinguishable, and tapping the
+    // MAG tag called launchPermissionRequest() into a system that silently
+    // refuses it: the tag never flipped to TRUE, nothing explained why, and the
+    // user concluded true north was broken.
+    val locationBlocked = !locationGranted &&
+        !locationPermission.status.shouldShowRationale &&
+        hasAsked
 
     // Only ever fires to fetch declination — never to unblock the UI.
     LaunchedEffect(locationGranted) {
@@ -95,8 +117,12 @@ fun CompassScreen(
 
     // Did asking for COARSE rather than FINE actually pay off in grant rate?
     // Reported once the user has been asked, not on the first composition.
-    LaunchedEffect(locationPermission.status) {
-        if (locationPermission.status.shouldShowRationale || locationGranted) {
+    //
+    // Keyed on hasAsked, not on shouldShowRationale: a permanent denial clears
+    // the rationale flag, so the old condition dropped exactly the outcome that
+    // most needs counting and biased the grant rate upward.
+    LaunchedEffect(locationPermission.status, hasAsked) {
+        if (hasAsked || locationGranted) {
             viewModel.onLocationOutcome(locationGranted)
         }
     }
@@ -110,7 +136,21 @@ fun CompassScreen(
             isArMode          = isArMode,
             onArModeChange    = onArModeChange,
             locationGranted   = locationGranted,
-            onRequestLocation = { locationPermission.launchPermissionRequest() },
+            onRequestLocation = {
+                if (locationBlocked) {
+                    // The in-app prompt is spent. System settings is the only
+                    // remaining route to true north, so send the user there
+                    // rather than firing a request that cannot succeed.
+                    context.openAppSettings()
+                } else {
+                    PermissionAskLog.recordAsked(
+                        context,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    )
+                    hasAsked = true
+                    locationPermission.launchPermissionRequest()
+                }
+            },
         )
     }
 }

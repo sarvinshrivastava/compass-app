@@ -147,6 +147,13 @@ object Constants {
 
         /** One-shot marker for the removal of the old widget's DataStore file. */
         const val KEY_LEGACY_STORE_PURGED = "legacy_widget_store_purged"
+
+        /**
+         * Prefix for the "this permission has been requested at least once"
+         * markers. The full permission name is appended, so one key per
+         * permission. See [com.pubpeb.compass.util.PermissionAskLog].
+         */
+        const val KEY_ASKED_PREFIX = "permission_asked_"
     }
 
     /**
