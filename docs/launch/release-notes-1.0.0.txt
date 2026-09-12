@@ -1,0 +1,5 @@
+First release.
+
+Open it and read a bearing — degrees and cardinal direction, nothing in the way. Tap MAG for true north. Raise the phone and north lands on the real horizon through the camera. Swipe across for a bubble level. Daylight mode for bright sun.
+
+No ads. No sign-in. And when the magnetometer is unreliable it says CALIBRATE rather than showing you a confident wrong number.
