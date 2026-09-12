@@ -53,6 +53,14 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release")
+            // Play warns when a bundle ships native code with no symbol file.
+            // Every .so here is a prebuilt from a dependency (CameraX, the
+            // Compose path library, DataStore) and every one is already
+            // stripped by its publisher, so there is nothing for AGP to
+            // extract today. Set it anyway: it costs nothing, and the day a
+            // dependency ships unstripped libs the symbols travel with the
+            // bundle instead of needing this to be remembered.
+            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
             // Shrink and obfuscate. The Glance widget is resolved reflectively
             // by the launcher, so proguard-rules.pro carries explicit keeps for
             // it — without those the tile fails silently rather than crashing,
