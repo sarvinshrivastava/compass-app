@@ -336,6 +336,15 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
      * Runs only while a screen is subscribed, for the same reason the sensors do.
      */
     suspend fun watchForStaleSensor() {
+        // Each subscription starts its own grace period. `lastEmissionAt` is a
+        // field on the ViewModel, which outlives the screen: returning to the
+        // app after more than STALE_AFTER_MS away left the PREVIOUS session's
+        // timestamp in place, so the first tick compared against it, found it
+        // stale, and published NO_SIGNAL before the sensors had a chance to
+        // register. That fired SensorStalledException as a non-fatal — turning
+        // the one diagnostic added to catch a real, invisible failure into
+        // noise that buries the genuine cases.
+        lastEmissionAt = SystemClock.elapsedRealtime()
         while (true) {
             delay(Constants.Sensor.WATCHDOG_POLL_MS)
             val last = lastEmissionAt
