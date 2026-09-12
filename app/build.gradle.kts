@@ -11,14 +11,14 @@ android {
     // match the app registered in the Firebase project — google-services matches
     // on applicationId, and a mismatch there fails the build outright.
     namespace = "com.pubpeb.compass"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.pubpeb.compass"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.1"
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -156,16 +156,17 @@ dependencies {
     implementation(libs.play.services.location)
 
     // Glance widget.
-    // Glance 1.1.1's POM declares androidx.work, but its own compiled code
-    // contains zero references to it — the dependency is vestigial. Excluding
-    // it removes WorkManagerInitializer from the merged manifest along with
-    // the scheduler services, receivers and the cold-start cost they carry.
-    implementation(libs.androidx.glance.appwidget) {
-        exclude(group = "androidx.work")
-    }
-    implementation(libs.androidx.glance.material3) {
-        exclude(group = "androidx.work")
-    }
+    // Do NOT exclude androidx.work here. Glance 1.1.1 is not vestigially
+    // dependent on it: GlanceAppWidget's own constructor resolves
+    // androidx.work.CoroutineWorker (Glance runs its composition in a
+    // SessionWorker). With the group excluded, merely instantiating
+    // CompassWidgetReceiver throws
+    //   ClassNotFoundException: androidx.work.CoroutineWorker
+    // which kills the app process. The launcher's widget picker instantiates
+    // the receiver, so every user who opened the picker saw "Can't load
+    // widget" and a crash they never asked for.
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
 
     // CameraX
     implementation(libs.androidx.camera.core)

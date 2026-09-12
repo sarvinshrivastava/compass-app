@@ -6,6 +6,7 @@
     CompassWidget.kt, or the picker advertises a tile the user does not get.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
@@ -13,20 +14,30 @@
     android:background="?android:attr/colorBackground"
     android:padding="8dp">
 
+    <!--
+        android:tint, not app:tint. Lint's UseAppTint check does not apply here:
+        the launcher inflates this through RemoteViews, which cannot resolve
+        AppCompat attributes, so app:tint would silently do nothing and the
+        picker would show an untinted mark.
+    -->
     <ImageView
         android:layout_width="32dp"
         android:layout_height="32dp"
         android:src="@drawable/ic_launcher_monochrome"
         android:tint="@color/brand_red"
-        android:contentDescription="@null" />
+        android:contentDescription="@null"
+        tools:ignore="UseAppTint" />
 
-    <Space
-        android:layout_width="8dp"
-        android:layout_height="1dp" />
-
+    <!--
+        Spacing is a margin, not a <Space>. RemoteViews inflates only an
+        allowlist of view classes and android.widget.Space is not on it —
+        it threw "Class not allowed to be inflated android.widget.Space"
+        and the picker showed "Can't load widget" instead of the tile.
+    -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
         android:text="@string/app_name"
         android:textColor="?android:attr/textColorPrimary"
         android:textSize="16sp"

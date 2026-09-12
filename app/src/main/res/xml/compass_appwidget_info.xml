@@ -14,6 +14,11 @@
     be woken. Nothing refreshes it and nothing should.
     previewLayout / previewImage: the picker renders a real tile instead of
     the app icon on a blank square.
+    initialLayout is REQUIRED and must be Glance's own loading layout. With it
+    absent the host inflated resource id 0x0, threw
+    Resources$NotFoundException, and every placed tile read "Can't load
+    widget" — Glance never gets the chance to replace a view that failed to
+    inflate in the first place.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
@@ -27,6 +32,7 @@
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen"
+    android:initialLayout="@layout/glance_default_loading_layout"
     android:previewLayout="@layout/widget_preview"
     android:previewImage="@drawable/compass_logo_static"
     android:description="@string/widget_description" />
