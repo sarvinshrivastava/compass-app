@@ -48,11 +48,9 @@ captures/
 .idea/modules.xml
 .idea/navEditor.xml
 
-# Keystore files
-# Uncomment the following lines if you do not want to check your keystore files in,
-# but you still keep them inside your project folder.
-# *.jks
-# *.keystore
+# Keystore files — never commit a signing key, even to a private repo.
+*.jks
+*.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
@@ -93,3 +91,19 @@ lint/tmp/
 
 # Kotlin
 .kotlin/
+
+# Generated store assets. A leading "./" is not a valid gitignore pattern and
+# silently matches nothing, which is what the previous line here did.
+#
+# The OUTPUTS are ignored because they are reproducible: run the scripts in
+# docs/launch/assets/tools/ and every one of them comes back byte-identical.
+# The INPUTS stay tracked — the raw device captures cannot be regenerated from
+# anything, and without them the generators have nothing to read.
+docs/launch/assets/*.png
+docs/launch/assets/screenshots/
+# ...and this one, which ar_composite.py rebuilds from raw-02-ar.png + forest-pov.png
+docs/launch/assets/screenshots-raw/raw-02-ar-forest.png
+
+# Python bytecode from the asset generators
+__pycache__/
+*.pyc

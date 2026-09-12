@@ -1,0 +1,4 @@
+# Never upload local env files or CLI state — this is a static site, so any
+# file in this directory would be served at its own path.
+.env*
+.vercel

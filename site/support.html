@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support — Minimal Compass</title>
+<meta name="description" content="Help with Minimal Compass for Android: calibration, true north, AR mode and the widget.">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+      <circle class="ring" cx="12" cy="12" r="10" fill="none" stroke-width="1.5"/>
+      <path class="needle" d="M12 3.5 L15 12 L12 10.6 L9 12 Z"/>
+    </svg>
+    <a class="name" href="/">Minimal Compass</a>
+    <nav>
+      <a href="/privacy">Privacy</a>
+      <a href="/support" aria-current="page">Support</a>
+    </nav>
+  </header>
+
+  <h1>Support</h1>
+  <p class="stamp">Minimal Compass for Android</p>
+
+  <p class="lede">Most compass problems are calibration problems, and they are
+  fixable in about ten seconds. Start here — and if none of this helps, email
+  me directly and I will answer.</p>
+
+  <div class="card">
+    <p><strong>Email:</strong>
+    <a href="mailto:sarvin5124@gmail.com">sarvin5124@gmail.com</a><br>
+    Please include your phone model and Android version. If the heading is
+    wrong, a photo of the screen next to another compass tells me more than any
+    description.</p>
+  </div>
+
+  <h2>The heading looks wrong</h2>
+  <p>A phone magnetometer measures the magnetic field around it, and it will
+  faithfully report the field of whatever is nearest — which is often not the
+  Earth.</p>
+  <ul>
+    <li><strong>Calibrate.</strong> Hold the phone and trace a figure of eight
+    in the air a few times, rotating your wrist as you go. The confidence
+    label under the heading should climb within a few seconds.</li>
+    <li><strong>Step away from metal and magnets.</strong> Car dashboards,
+    desks with steel frames, laptops, speakers, wireless chargers and magnetic
+    phone cases and mounts all bend the reading badly. A magnetic case is the
+    single most common cause, and no app can correct for it.</li>
+    <li><strong>Check what the app is telling you.</strong> If it shows
+    <code>UNRELIABLE</code> or <code>NO SENSOR SIGNAL</code>, it has already
+    detected the problem and is warning you rather than guessing.</li>
+  </ul>
+
+  <h2>What is the difference between MAG and TRUE?</h2>
+  <p><code>MAG</code> is magnetic north — where the needle points.
+  <code>TRUE</code> is geographic north — where the pole actually is. The gap
+  between them is called declination and can be more than ten degrees
+  depending on where you are.</p>
+  <p>Tap the <code>MAG</code> label to switch. The first tap asks for
+  approximate location permission, because the correction depends on where you
+  are standing; the app takes one coarse fix, works out the correction angle,
+  and keeps only that angle. Your position is never stored or sent anywhere —
+  see the <a href="/privacy">privacy policy</a>.</p>
+
+  <h2>The tag never changes to TRUE</h2>
+  <p>Either location permission is off, or no position fix arrived. Check
+  Android Settings → Apps → Minimal Compass → Permissions → Location, and make
+  sure location services are switched on system-wide. Indoors, a first fix can
+  take longer than the app is willing to wait; step near a window and try
+  again.</p>
+
+  <h2>AR mode</h2>
+  <p>Raise the phone towards vertical and the compass hands over to a camera
+  view with the cardinal directions floating over the scene. Lower it and the
+  flat rose returns.</p>
+  <ul>
+    <li><strong>It opens when I don't want it to.</strong> Turn off automatic
+    switching in the settings dialog; you can still open AR deliberately.</li>
+    <li><strong>The screen is black.</strong> Another app is probably holding
+    the camera — close it and reopen AR.</li>
+    <li><strong>The camera permission screen won't accept my tap.</strong>
+    After two refusals Android blocks further prompts from inside the app. The
+    button changes to <em>Open Settings</em>, which takes you to the place
+    where it can still be granted.</li>
+  </ul>
+
+  <h2>The bubble level</h2>
+  <p>Swipe left from the compass. Lay the phone on the surface you are
+  checking; the bubble centres when it is flat. For a vertical surface, hold
+  the phone flat against it.</p>
+
+  <h2>The home screen widget</h2>
+  <p>Long-press an empty area of the home screen, choose Widgets, find Minimal
+  Compass and drag it into place. The tile is a shortcut, not a live readout —
+  a widget cannot hold the magnetometer open, so any heading it displayed would
+  be a stale guess taken while the phone was face-down in a pocket. Showing
+  nothing is more honest than showing that.</p>
+
+  <h2>Daylight mode</h2>
+  <p>The settings dialog has a Daylight switch: a maximum-contrast white
+  screen for reading the compass in direct sun. It is separate from your
+  system light and dark theme, which the app otherwise follows.</p>
+
+  <h2>Which devices are supported</h2>
+  <p>Android 7.0 (API 24) and later, on phones that have a magnetometer.
+  Devices without one cannot run a compass at all and are filtered out on
+  Google Play. AR mode additionally needs a rear camera; everything else works
+  without one.</p>
+
+  <h2>Reporting a bug</h2>
+  <p>Email is the fastest route. Useful details:</p>
+  <ul>
+    <li>Phone model and Android version.</li>
+    <li>What you expected and what happened instead.</li>
+    <li>Whether the confidence label was showing anything at the time.</li>
+    <li>Whether it happens every time or occasionally.</li>
+  </ul>
+  <p>Crash reports arrive automatically and anonymously, so a crash is usually
+  already visible to me — but they carry no note of what you were trying to do,
+  and that context is often what makes one fixable.</p>
+
+  <footer>
+    <p>Minimal Compass · <a href="/privacy">Privacy</a> ·
+    <a href="/support">Support</a></p>
+  </footer>
+
+</div>
+</body>
+</html>

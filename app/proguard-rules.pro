@@ -35,14 +35,11 @@
 -keep class androidx.camera.camera2.interop.** { *; }
 
 # ── Firebase Crashlytics ─────────────────────────────────────────────────────
-# Crashlytics references android.os.ProfilingTrigger, a platform class newer
-# than compileSdk 35, so R8 cannot resolve it. The call is guarded by an API
-# level check at runtime, so the reference is unreachable on every device this
-# app supports (minSdk 24). Bumping compileSdk to 36 is the alternative, but
-# CLAUDE.md records that 36 breaks this build.
--dontwarn android.os.ProfilingTrigger
--dontwarn android.os.ProfilingTrigger$Builder
--dontwarn android.os.ProfilingManager
+# The android.os.Profiling* -dontwarn rules that used to live here are gone.
+# They existed because Crashlytics references those classes and compileSdk 35
+# could not resolve them; compileSdk is 36 now and resolves them directly. The
+# old comment claimed 36 broke this build — it does not, and that claim cost a
+# release cycle. Do not reinstate either the rules or the claim.
 
 # Keep line numbers and source file so Crashlytics stack traces stay readable
 # after obfuscation; the mapping file is uploaded by the Crashlytics plugin.

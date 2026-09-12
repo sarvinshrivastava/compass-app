@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Minimal Compass</title>
+<meta name="description" content="What Minimal Compass for Android collects, what it does not, and why.">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+      <circle class="ring" cx="12" cy="12" r="10" fill="none" stroke-width="1.5"/>
+      <path class="needle" d="M12 3.5 L15 12 L12 10.6 L9 12 Z"/>
+    </svg>
+    <a class="name" href="/">Minimal Compass</a>
+    <nav>
+      <a href="/privacy" aria-current="page">Privacy</a>
+      <a href="/support">Support</a>
+    </nav>
+  </header>
+
+  <h1>Privacy Policy</h1>
+  <p class="stamp">Effective 12 September 2026 · Version 1.0.0</p>
+
+  <p class="lede">Minimal Compass has no accounts, no sign-in, and no advertising.
+  It never uploads your heading, the position your phone computes, or anything
+  your camera sees.
+  What it does send is a small, anonymous set of usage counters and crash
+  reports, and this page explains exactly what those contain.</p>
+
+  <div class="card">
+    <p><strong>The short version.</strong> Sensor readings, the location fix
+    used for true north, and camera frames are processed on your phone and are
+    never transmitted or stored. Anonymous usage counts and crash diagnostics
+    are sent to Google Firebase, which attaches a random app-instance ID and
+    derives an approximate city-level location from your IP address. No
+    advertising identifier is collected, no profile is built, and nothing is
+    sold or shared with anyone else.</p>
+  </div>
+
+  <h2>Who is responsible</h2>
+  <p>Minimal Compass is published by an individual developer, Sarvin
+  Shrivastava, based in Nagpur, India. For anything on this page, write to
+  <a href="mailto:sarvin5124@gmail.com">sarvin5124@gmail.com</a>.</p>
+
+  <h2>What stays on your device</h2>
+
+  <h3>Compass and level readings</h3>
+  <p>The heading and the bubble level come from your phone's accelerometer and
+  magnetometer. Android grants access to these sensors without asking for a
+  permission. The readings are used to draw the screen and are discarded
+  immediately. They are never written to storage and never leave the device.</p>
+
+  <h3>Approximate location</h3>
+  <p>Magnetic north and true north differ by an angle called magnetic
+  declination, which depends on where you are standing. If — and only if — you
+  tap the <code>MAG</code> label and grant the permission, the app asks Google
+  Play services for a single coarse position fix, uses it to compute that one
+  correction angle, and keeps only the angle.</p>
+  <ul>
+    <li>The permission requested is <code>ACCESS_COARSE_LOCATION</code>, not
+    the precise variant. Declination changes by roughly a degree over tens of
+    kilometres, so a city-block fix is as good as a precise one here.</li>
+    <li>Your coordinates exist only in memory, for as long as the calculation
+    takes. They are never stored, logged, or transmitted anywhere.</li>
+    <li>The app works fully without this permission. Refusing it leaves the
+    compass on magnetic north, which is still correct.</li>
+    <li>The fix itself is obtained by Google Play services, which is part of
+    the Android system rather than this app, and is governed by
+    <a href="https://policies.google.com/privacy">Google's own privacy
+    policy</a>.</li>
+  </ul>
+
+  <h3>Camera</h3>
+  <p>The AR overlay draws cardinal directions over the live camera view. The
+  camera runs only while that view is open, and closing it releases the camera
+  immediately.</p>
+  <ul>
+    <li>Frames are rendered to the screen and thrown away. Nothing is recorded,
+    photographed, saved, or uploaded.</li>
+    <li>No image analysis of any kind runs on the frames.</li>
+    <li>Declining the camera permission disables only the AR overlay. Every
+    other part of the app is unaffected.</li>
+  </ul>
+
+  <h2>What is sent off the device</h2>
+
+  <p>The app uses two Google Firebase services. Google acts as a data processor
+  for both; their handling is covered by the
+  <a href="https://firebase.google.com/support/privacy">Firebase privacy
+  documentation</a>.</p>
+
+  <h3>Firebase Analytics — seven anonymous counters</h3>
+  <p>These exist to answer one question: which parts of the app earn their
+  place. They are deliberately coarse. There are no screen views, no button
+  taps, no funnels, no session replay, and no name, email address or account
+  of any kind. The complete list is:</p>
+
+  <div class="scroller">
+  <table>
+    <thead>
+      <tr><th>Event</th><th>What it records</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>compass_session</code></td>
+        <td>How many seconds the app was in the foreground, and how many
+        seconds passed before the heading settled.</td>
+      </tr>
+      <tr>
+        <td><code>accuracy_state</code></td>
+        <td>One word describing magnetometer confidence for the session — for
+        example <code>HIGH</code> or <code>UNRELIABLE</code>.</td>
+      </tr>
+      <tr>
+        <td><code>ar_opened</code></td>
+        <td>That the AR view was opened, and whether it opened automatically or
+        by a tap.</td>
+      </tr>
+      <tr>
+        <td><code>level_opened</code></td>
+        <td>That the bubble level page was viewed.</td>
+      </tr>
+      <tr>
+        <td><code>daylight_toggled</code></td>
+        <td>That high-contrast daylight mode was switched on or off.</td>
+      </tr>
+      <tr>
+        <td><code>location_outcome</code></td>
+        <td>Whether the location permission was granted or denied.</td>
+      </tr>
+      <tr>
+        <td><code>declination_outcome</code></td>
+        <td>Whether a true-north correction was successfully obtained.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Every value above is a number or a fixed word. None of them contains a
+  heading, a coordinate, a place name, a timestamp of where you were, or
+  anything that describes you.</p>
+
+  <p><strong>Two things Firebase adds that the table above does not
+  show.</strong> Both are disclosed on this app's Data safety listing on Google
+  Play, and both come from Firebase rather than from anything this app chooses
+  to send.</p>
+
+  <ul>
+    <li><strong>An app-instance ID.</strong> Firebase Analytics assigns each
+    installation a random identifier and attaches it to the counters above. It
+    is not your name, your account or your advertising ID, it is not shared
+    with anyone, and it is destroyed when you uninstall the app. Google Play
+    classifies it as a device identifier, and this app declares it as one.</li>
+    <li><strong>Coarse location derived from your IP address.</strong> Every
+    network request carries an IP address, and Google derives an approximate
+    location from a masked version of it on their servers — typically a city
+    or region. This is separate from, and much less precise than, the location
+    fix described above: that one is computed on your phone and never leaves
+    it. The app neither sees nor stores the IP-derived location.</li>
+  </ul>
+
+  <p><strong>The advertising identifier is removed.</strong> Firebase normally
+  collects Android's advertising ID and sets ad-personalisation signals. Both
+  are switched off in this app, and the advertising ID permission is stripped
+  out of the app package entirely, so it cannot be collected even in principle.
+  Minimal Compass contains no advertising and no advertising SDKs.</p>
+
+  <h3>Firebase Crashlytics — crash diagnostics</h3>
+  <p>When the app crashes or detects that the sensors have gone silent, a
+  diagnostic report is sent so the fault can be found and fixed. A report
+  contains the stack trace, your device model, its Android version, the app
+  version, and one extra field recording whether the magnetometer was healthy
+  at the moment of failure. It contains no personal data, no location and no
+  camera data.</p>
+
+  <h2>What the app never does</h2>
+  <ul>
+    <li>No account, sign-in, email address, name or phone number.</li>
+    <li>No advertising, no advertising identifier, no ad networks, no tracking
+    across other apps or websites.</li>
+    <li>No contacts, photos, files, microphone or call data.</li>
+    <li>No selling or renting of data. No sharing with any third party other
+    than Google as the processor of the two services named above.</li>
+    <li>No analytics profile that could be traced back to you.</li>
+  </ul>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li><strong>Permissions.</strong> Location and camera can be revoked at any
+    time in Android Settings → Apps → Minimal Compass → Permissions. The
+    compass keeps working.</li>
+    <li><strong>Analytics and crash reports.</strong> These have no in-app
+    switch in this version. Uninstalling the app stops all collection. If you
+    would prefer an in-app opt-out, say so by email — it is a reasonable
+    request and will be considered for a future release.</li>
+    <li><strong>Access and deletion.</strong> Because nothing collected
+    identifies you, there is no record that can be located and returned or
+    erased on request. If you believe otherwise in your particular case, write
+    to the address above and it will be investigated.</li>
+  </ul>
+
+  <h2>Retention</h2>
+  <p>Analytics events are retained by Google for the period set on the Firebase
+  project and are then deleted automatically. Crash reports are retained for
+  Firebase's standard crash-reporting period. Neither is exported anywhere else
+  or combined with any other source.</p>
+
+  <h2>Children</h2>
+  <p>Minimal Compass is suitable for users of all ages and contains no user
+  accounts, no user-generated content, no purchases, no advertising, and no
+  social features. It is not directed at children under 13, and it does not
+  knowingly collect personal information from anyone, children included.</p>
+
+  <h2>International transfers</h2>
+  <p>Google processes Firebase data on servers that may be located outside your
+  country, including in the United States, under Google's own safeguards for
+  international transfers.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If this policy changes materially, the effective date at the top of the
+  page changes with it and the revised policy is published here before the app
+  release it describes. Material reductions in privacy will also be noted in
+  the app's release notes on Google Play.</p>
+
+  <h2>Contact</h2>
+  <p>Questions, corrections and privacy requests:
+  <a href="mailto:sarvin5124@gmail.com">sarvin5124@gmail.com</a>.</p>
+
+  <footer>
+    <p>Minimal Compass · <a href="/privacy">Privacy</a> ·
+    <a href="/support">Support</a></p>
+  </footer>
+
+</div>
+</body>
+</html>
