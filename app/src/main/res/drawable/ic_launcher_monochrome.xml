@@ -1,54 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Generated from the same geometry as docs/launch/assets/play-icon-512.png.
+    If the store icon changes, regenerate this rather than hand-editing: a
+    launcher icon that does not match the Play tile reads as a different app.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- Outer ring -->
     <path
-        android:fillColor="#00000000"
-        android:pathData="M54,24a30,30 0,1 1,0 60a30,30 0,1 1,0 -60z"
-        android:strokeWidth="2"
-        android:strokeColor="#000000" />
-
-    <!-- Tick marks N/E/S/W -->
+        android:pathData="M54.0,24.0a30,30 0 1,1 0,60a30,30 0 1,1 0,-60z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
     <path
-        android:fillColor="#00000000"
-        android:pathData="M54,24L54,30"
-        android:strokeWidth="2"
-        android:strokeColor="#000000" />
+        android:pathData="M54.00,30.60L54.00,26.40"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
     <path
-        android:fillColor="#00000000"
-        android:pathData="M84,54L78,54"
-        android:strokeWidth="2"
-        android:strokeColor="#000000" />
+        android:pathData="M66.50,32.35L67.80,30.10"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
     <path
-        android:fillColor="#00000000"
-        android:pathData="M54,84L54,78"
-        android:strokeWidth="2"
-        android:strokeColor="#000000" />
+        android:pathData="M75.65,41.50L77.90,40.20"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
     <path
-        android:fillColor="#00000000"
-        android:pathData="M24,54L30,54"
-        android:strokeWidth="2"
-        android:strokeColor="#000000" />
-
-    <!-- North needle (filled) -->
+        android:pathData="M77.40,54.00L81.60,54.00"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
     <path
-        android:fillColor="#000000"
-        android:pathData="M54,30L50.5,54L57.5,54Z" />
-
-    <!-- South needle (outline only) -->
+        android:pathData="M75.65,66.50L77.90,67.80"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
     <path
-        android:fillColor="#00000000"
-        android:pathData="M54,74L50.5,54L57.5,54Z"
-        android:strokeWidth="1.2"
-        android:strokeColor="#000000" />
-
-    <!-- Center cap -->
+        android:pathData="M66.50,75.65L67.80,77.90"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
     <path
-        android:fillColor="#00000000"
-        android:pathData="M54,50a4,4 0,1 1,0 8a4,4 0,1 1,0 -8z"
-        android:strokeWidth="1.2"
-        android:strokeColor="#000000" />
+        android:pathData="M54.00,77.40L54.00,81.60"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M41.50,75.65L40.20,77.90"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M32.35,66.50L30.10,67.80"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M30.60,54.00L26.40,54.00"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M32.35,41.50L30.10,40.20"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M41.50,32.35L40.20,30.10"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.1"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M54.0,28.8L50.8,54.0L57.2,54.0z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M54.0,79.2L50.8,54.0L57.2,54.0z"
+        android:fillColor="#FFFFFF" />
 </vector>

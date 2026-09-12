@@ -1,11 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Generated from the same geometry as docs/launch/assets/play-icon-512.png.
+    If the store icon changes, regenerate this rather than hand-editing: a
+    launcher icon that does not match the Play tile reads as a different app.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Deep dark background matching app palette (#0D0F14) -->
-    <path
-        android:fillColor="#0D0F14"
-        android:pathData="M0,0h108v108h-108z" />
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="31"
+                android:centerY="23"
+                android:gradientRadius="96"
+                android:startColor="#1E2637"
+                android:endColor="#080A0F" />
+        </aapt:attr>
+    </path>
 </vector>
