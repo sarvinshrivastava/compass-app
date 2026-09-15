@@ -107,3 +107,7 @@ docs/launch/assets/screenshots-raw/raw-02-ar-forest.png
 # Python bytecode from the asset generators
 __pycache__/
 *.pyc
+
+# MCP scratch output and one-off visual checks — never part of the build.
+.playwright-mcp/
+iconcheck.png
