@@ -46,9 +46,9 @@ UI composables            — collectAsStateWithLifecycle()
 
 ### Package Layout
 
-- **`sensor/`** — `SensorRepository` (hardware → Flow), `CompassSensorData` (data class: azimuth, pitch, roll, cameraElevationDeg, tiltFromFlatDeg, accuracy) + `CompassAccuracy` enum
+- **`sensor/`** — `SensorRepository` (hardware → Flow), `CompassSensorData` (data class: azimuth, pitch, roll, cameraElevationDeg, tiltFromFlatDeg, screenRollDeg, accuracy), `CompassAccuracy` enum, `ArTriggerGate`, `LevelPostureGate`, `DeclinationRepository`
 - **`viewmodel/`** — `CompassViewModel` (single ViewModel shared across both pages)
-- **`ui/`** — `MainScreen` (pager root), `CompassScreen` (page 0), `TiltScreen` (page 1), `ArOverlayScreen` (AR camera overlay), `CompassRose`, `BubbleLevelIndicator`, `theme/Theme`
+- **`ui/`** — `MainScreen` (pager root), `CompassScreen` (page 0), `TiltScreen` (page 1), `ArOverlayScreen` (AR camera overlay), `CompassRose`, `BubbleLevelIndicator` (flat posture), `PlumbLevelIndicator` (upright posture), `CalibrationDialog`, `theme/Theme`
 - **`widget/`** — `CompassWidget` (GlanceAppWidget), `CompassWidgetReceiver`, `CompassWidgetUpdateWorker`
 
 ### Navigation
@@ -70,6 +70,9 @@ Shared angle helpers are in `util/AngleUtil.kt`: `shortestArcDelta`,
 `normalizedHeading`, `shouldPublishHeading`. The shortest-arc formula was
 previously copy-pasted at five call sites with its verification comment beside
 only one of them — do not re-inline it.
+
+`util/SmoothingUtil.kt` holds `adaptiveLowPass`, the two-speed filter the AR
+horizon uses. It is **non-cyclic only** — never point it at a bearing.
 
 ### Sensor lifetime
 
@@ -119,10 +122,11 @@ precisely so red keeps that one meaning — see the note in `CompassRose`.
 
 **The remap only applies to azimuth.** `getOrientation()` is called **twice**, on two different matrices: pitch and roll always come from the *unremapped* matrix. Reading them from the remapped one made the bubble level jump ~90° the instant the device crossed the threshold.
 
-**Three distinct tilt values, do not confuse them:**
+**Four distinct tilt values, do not confuse them:**
 - `pitch` / `roll` — unremapped device orientation, for the level screen.
 - `tiltFromFlatDeg` — `acos(|g.z| / |g|)`, a continuous 0–90° magnitude (0 = flat on either face, 90 = upright). The AR trigger signal. Replaced the old `|g.y| > |g.z|` test, which was a hard 45° threshold in disguise.
 - `cameraElevationDeg` — `asin(-R[8])`, a **signed** −90…+90° elevation of the rear-camera axis. Anything placing a horizon must use this, never `pitch`: `getOrientation` gives pitch as `asin(-R[7])`, which folds camera-up and camera-down onto the same value.
+- `screenRollDeg` — `atan2(g.x, g.y)`, rotation about the device's viewing axis, 0 = plumb portrait. The upright level's whole reading. **Not** `roll`: that is an Euler angle and degenerates at the ±90° pitch this value is used at. Meaningless while the phone is flat. See `learnings/level-upright-posture-and-euler-degeneracy.md`.
 
 **Accuracy** — `onAccuracyChanged` is plumbed through to `CompassAccuracy` (magnetometer only; the accelerometer's is always high). It starts at `UNRELIABLE`, never `HIGH`. The ViewModel adds a watchdog that synthesises `NO_SIGNAL` after 3s of silence, because `getRotationMatrix()` returning false stops emissions with no error at all.
 
@@ -277,13 +281,60 @@ debugging in an area below, read that file first** — it exists because somethi
 here was not what it looked like.
 
 ### Rules — these always apply
+- warming `ProcessCameraProvider.getInstance()` is not a camera prewarm — only `bindToLifecycle` starts the clock that matters. <sub>(`learnings/ar-entry-cost-is-the-first-frame.md`)</sub>
+- every value that positions something in the AR overlay gets a second-stage filter — if you add a new one, filter it, and never point `adaptiveLowPass` at a bearing. <sub>(`learnings/ar-overlay-filtering-asymmetry.md`)</sub>
+- a live region's description must change only as often as you want TalkBack to speak — never once per degree; and never add a sibling, even a zero-size one, to a `SpaceBetween` parent. <sub>(`learnings/compose-semantics-and-layout-traps.md`)</sub>
+- persist the declination angle and its timestamp — never the latitude and longitude it came from. <sub>(`learnings/declination-cache-and-bearing-lock.md`)</sub>
 - never `exclude(group = "androidx.work")` from Glance, never put `<Space>` in a RemoteViews layout, and never ship an `<appwidget-provider>` without `android:initialLayout`. <sub>(`learnings/glance-widget-three-silent-failures.md`)</sub>
+- for any tilt reading taken while the phone is upright, derive the angle from the gravity vector — never from `getOrientation`'s roll, which is degenerate at exactly that pitch. <sub>(`learnings/level-upright-posture-and-euler-degeneracy.md`)</sub>
 - never branch on `isGranted` + `shouldShowRationale` alone — pair them with the persisted marker in `util/PermissionAskLog.kt`, or the denied-for-good user gets a button that cannot work. <sub>(`learnings/permission-permanent-denial.md`)</sub>
 - the public URL is `https://minimal-compass.vercel.app` — never the `-sarvinshrivastavas-projects.vercel.app` form, which 302s to a Vercel SSO login. <sub>(`learnings/vercel-alias-deployment-protection.md`)</sub>
 
 ### Reference — read when touching that area
+- `GeomagneticField` still ships WMM-2020, and that is not a bug to fix — `learnings/geomagnetic-field-is-wmm-2020.md`
 - Glance app-widget gotchas — `learnings/glance-widget-gotchas.md`
 - Play release build gotchas — `learnings/play-release-gotchas.md`
 - Sensor orientation, remapping, and what each value actually means — `learnings/sensor-orientation-and-remap.md`
 
 <!-- END learnings-index -->
+
+---
+
+## Bearing lock, calibration, and the level's two postures
+
+Three behaviours added after the 1.0.0 review. Each has a rule that is easy to
+undo by accident.
+
+**Bearing lock** — `CompassViewModel.lockedBearing` is held in *display* space,
+so `toggleTrueNorth()` must shift it by the same declination it shifts the
+heading by. Skipping that silently rotates the direction the user is following,
+and both numbers still look plausible afterwards. The readout uses
+`shortestArcDelta`, so a lock at 002° while heading 358° reads `4° RIGHT`.
+
+**Calibration** — `CalibrationDialog` is never a gate. The compass keeps
+running behind it and it can always be dismissed, because "the compass never
+waits for anything" is the rule the app is built on and a degraded reading is
+still a reading. It opens automatically at most once per session, and only
+after `Constants.Ui.CALIBRATION_PROMPT_DELAY_MS` of sustained `UNRELIABLE` —
+accuracy *starts* `UNRELIABLE` by design, so prompting immediately would put a
+dialog in front of every cold start.
+
+**Level postures** — `TiltScreen` picks its instrument from
+`CompassViewModel.levelPosture`, never by re-deriving an angle. Flat gets the
+bullseye (`BubbleLevelIndicator`), upright gets the single-axis rule
+(`PlumbLevelIndicator`). `LevelPostureGate` applies hysteresis for the same
+reason `ArTriggerGate` does.
+
+**Remembered declination** — cached as an angle plus a timestamp and nothing
+else. Never cache the latitude and longitude: that turns `compass_prefs` into a
+location history and contradicts the privacy policy and the Data Safety form.
+
+## Screenshot pipeline
+
+`docs/launch/assets/tools/make_store.py` builds the Play phone screenshots in
+three layouts (full-bleed hero, device-framed, type-only) per
+`docs/launch/aso-screenshot-plan.md`. It **exits non-zero** while any frame is
+flagged `pending` or its raw is missing, and prints what still needs a
+real-device capture. Three states cannot be produced on an emulator: true north
+(no location fix resolves), the `CALIBRATE` warning (emulated magnetometer
+always reports `HIGH`), and a real AR horizon.

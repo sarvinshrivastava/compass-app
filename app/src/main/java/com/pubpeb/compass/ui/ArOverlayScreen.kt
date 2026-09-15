@@ -16,6 +16,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
@@ -46,19 +51,26 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
@@ -81,9 +93,11 @@ import com.pubpeb.compass.ui.theme.appColors
 import com.pubpeb.compass.Constants
 import com.pubpeb.compass.util.PermissionAskLog
 import com.pubpeb.compass.util.bearingToCardinal
+import com.pubpeb.compass.util.bearingToSpokenLabel
 import com.pubpeb.compass.util.normalizedHeading
 import com.pubpeb.compass.util.openAppSettings
 import com.pubpeb.compass.util.shortestArcDelta
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.roundToInt
@@ -135,6 +149,9 @@ fun ArOverlayScreen(
     cameraElevationDeg: Float,
     onExitAr: () -> Unit,
     modifier: Modifier = Modifier,
+    lockedBearing: Float? = null,
+    onToggleLock: (() -> Unit)? = null,
+    onStreamingChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val cameraPermission = rememberPermissionState(Manifest.permission.CAMERA)
@@ -168,6 +185,16 @@ fun ArOverlayScreen(
     // permission states below — a denied prompt must be escapable the same way.
     BackHandler(enabled = true) { onExitAr() }
 
+    // Everything except the camera-granted branch draws immediately and needs no
+    // camera frame. Say so, or the caller — which holds the compass on screen
+    // until this reports ready — keeps the whole overlay at alpha 0 and the
+    // permission prompt is invisible underneath it. That made "tap AR with
+    // camera denied" do nothing at all, with no way out but lowering the phone.
+    val awaitingCamera = cameraPermission.status.isGranted
+    LaunchedEffect(awaitingCamera) {
+        if (!awaitingCamera) onStreamingChanged(true)
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         when {
             cameraPermission.status.isGranted ->
@@ -176,6 +203,9 @@ fun ArOverlayScreen(
                     arAzimuth    = arAzimuth,
                     cameraElevationDeg = cameraElevationDeg,
                     onExitAr     = onExitAr,
+                    lockedBearing = lockedBearing,
+                    onToggleLock  = onToggleLock,
+                    onStreamingChanged = onStreamingChanged,
                 )
 
             permanentlyDenied ->
@@ -220,6 +250,9 @@ private fun ArContent(
     arAzimuth: Float,
     cameraElevationDeg: Float,
     onExitAr: () -> Unit,
+    lockedBearing: Float?,
+    onToggleLock: (() -> Unit)?,
+    onStreamingChanged: (Boolean) -> Unit,
 ) {
     val c = appColors
     var fovHalfDeg by remember { mutableFloatStateOf(Constants.Ar.DEFAULT_FOV_HALF_DEG) }
@@ -250,18 +283,26 @@ private fun ArContent(
             onCameraBound = { camera = it },
             onFovMeasured = { measuredHalfFov -> fovHalfDeg = measuredHalfFov },
             onBindFailed  = { cameraFailed = true },
+            onStreamingChanged = onStreamingChanged,
             modifier      = Modifier.fillMaxSize(),
         )
 
         // Layer 2 — cardinal labels. Also un-inset: the FOV → screen mapping is
         // defined against the full preview viewport, so shrinking this box would
         // put every label at the wrong angle.
-        CardinalOverlay(
-            azimuth      = arAzimuth,
-            cameraElevationDeg = cameraElevationDeg,
-            fovHalfDeg   = fovHalfDeg,
-            modifier     = Modifier.fillMaxSize(),
-        )
+        // Frozen while the camera is dead: labels sliding over a black screen
+        // beside a "camera unavailable" message read as a second failure rather
+        // than as the one being explained.
+        if (!cameraFailed) {
+            CardinalOverlay(
+                azimuth      = arAzimuth,
+                cameraElevationDeg = cameraElevationDeg,
+                fovHalfDeg   = fovHalfDeg,
+                lockedBearing = lockedBearing,
+                headingDeg   = azimuth,
+                modifier     = Modifier.fillMaxSize(),
+            )
+        }
 
         // Layer 3 — chrome. This is the only layer that gets inset, so the HUD and
         // buttons clear the camera cutout and gesture bar on real hardware while
@@ -280,6 +321,7 @@ private fun ArContent(
 
             ArHeadingHud(
                 azimuth  = azimuth,
+                lockedBearing = lockedBearing,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 8.dp),
@@ -302,15 +344,44 @@ private fun ArContent(
                 )
             }
 
-            // Torch only exists if a camera actually bound.
-            camera?.let { cam ->
-                TorchButton(
-                    isTorchOn = isTorchOn,
-                    onToggle  = { cam.cameraControl.enableTorch(!isTorchOn) },
-                    modifier  = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp),
-                )
+            // ── Tool cluster, centred ─────────────────────────────────────
+            // These were in the two bottom corners, mirroring each other. That
+            // placement assumes the one-handed, phone-held-low grip whose thumb
+            // arc fans into the corners — and AR is used at eye level, where
+            // the phone is braced and that arc collapses to a small zone just
+            // above the bottom bezel, centred. Reaching a corner from a braced
+            // grip means unlocking the brace, which loses the bearing you were
+            // sighting.
+            //
+            // Centring also gets the lock out of the left edge-swipe zone,
+            // where a thumb reaching for it could trigger the back gesture —
+            // which exits AR (see the BackHandler above). That was a real
+            // hazard, not a theoretical one.
+            //
+            // Lock left, torch right, preserving the order they already had.
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 28.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                onToggleLock?.let { toggle ->
+                    ArLockButton(
+                        locked   = lockedBearing != null,
+                        onToggle = toggle,
+                    )
+                }
+
+                // Torch only exists if a camera actually bound. With one child
+                // the Row simply centres it, which is the behaviour we want —
+                // no special case, and no lone button stranded in an old corner.
+                camera?.let { cam ->
+                    TorchButton(
+                        isTorchOn = isTorchOn,
+                        onToggle  = { cam.cameraControl.enableTorch(!isTorchOn) },
+                    )
+                }
             }
         }
     }
@@ -356,17 +427,31 @@ private fun ExitArButton(
 // ── AR heading HUD ────────────────────────────────────────────────────────────
 
 /**
- * Compact degree + cardinal readout pinned to the top-centre of the AR view.
+ * Degree readout pinned to the top-centre of the AR view, plus turn guidance
+ * once a bearing is locked.
  *
  * Fed from the deadbanded display heading, *not* the AR positioning filter: the
  * filtered value trails by ~400 ms, so toggling between the flat screen and AR
  * used to show two different numbers for one physical heading.
  *
- * Layout:  "247°   SW"  — degree in monospace (left), cardinal in regular (right)
+ * ### On the cardinal word
+ * This was briefly removed as redundant with the chips on the horizon rule.
+ * It is back, at the owner's request, after using both: the chip nearest the
+ * centre restates it, but the pill is where the eye goes for a definitive
+ * reading and having to find the right chip to confirm the cardinal was worse
+ * than the duplication. Keeping it.
+ *
+ * The turn instruction sits on its own line beneath, appearing only while a
+ * bearing is locked — that is the one thing the scene genuinely cannot show.
+ *
+ * Layout:  "247°  SW"       — no lock
+ *          "247°  SW"       — locked
+ *          "22° LEFT"
  */
 @Composable
 private fun ArHeadingHud(
     azimuth: Float,
+    lockedBearing: Float?,
     modifier: Modifier = Modifier,
 ) {
     val c = appColors
@@ -374,39 +459,124 @@ private fun ArHeadingHud(
     // 359.7° rounds to 360, which is not a heading — fold it back to 0.
     val degrees  = normalizedHeading(azimuth)
     val cardinal = bearingToCardinal(degrees.toFloat())
+    val sectorKey = bearingToSpokenLabel(degrees.toFloat())
 
-    // Screen readers should hear the heading change, but only when the number a
-    // sighted user sees actually changes — keyed on the rounded degree so sensor
-    // noise below the deadband never re-announces the same reading.
-    val spokenHeading = remember(degrees) { "Heading $degrees degrees, $cardinal" }
+    // Read on focus: the exact heading, whenever the user asks for it.
+    val spokenHeading = remember(degrees) { "Heading $degrees degrees, $sectorKey" }
 
-    Row(
+    // Announced automatically: the sector only, which changes eight times per
+    // rotation instead of the roughly 360 times the precise string does. Same
+    // split, and the same reason, as the flat screen's readout — a live region
+    // re-announces on every change of its description, so a per-degree
+    // description makes TalkBack narrate continuously for as long as the phone
+    // is moving.
+    Column(
         modifier = modifier
             .background(c.chipBg, RoundedCornerShape(12.dp))
-            .padding(horizontal = 20.dp, vertical = 10.dp)
-            .semantics(mergeDescendants = true) {
-                contentDescription = spokenHeading
-                liveRegion         = LiveRegionMode.Polite
-            },
-        verticalAlignment     = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(horizontal = 0.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Degree number — monospace so width doesn't jump as digits change
-        Text(
-            text       = "$degrees°",
-            color      = c.textPrimary,
-            fontSize   = 36.sp,
-            fontWeight = FontWeight.Light,
-            fontFamily = FontFamily.Monospace,
-            lineHeight = 36.sp,
-        )
-        Spacer(modifier = Modifier.padding(horizontal = 8.dp))
-        Text(
-            text          = cardinal,
-            color         = if (cardinal == "N") c.northLabel else c.textSecondary,
-            fontSize      = 18.sp,
-            fontWeight    = FontWeight.SemiBold,
-            letterSpacing = 2.sp,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Exactly the flat screen's split, and for the same reasons.
+            //
+            // NOT merged with a liveRegion on the parent: a merged node's
+            // semantics include this degree Text, whose content changes ~360
+            // times per rotation, and Compose emits a content-changed event for
+            // a Text change just as it does for a description change — so the
+            // live region would fire on every degree even with a sector-keyed
+            // description. Merging also replaces the exact degree on focus with
+            // whatever description the parent carries.
+            Text(
+                text       = "$degrees°",
+                color      = c.textPrimary,
+                fontSize   = 36.sp,
+                fontWeight = FontWeight.Light,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 36.sp,
+                modifier   = Modifier.semantics { contentDescription = spokenHeading },
+            )
+            Spacer(modifier = Modifier.padding(horizontal = 8.dp))
+            Text(
+                text          = cardinal,
+                color         = if (cardinal == "N") c.northLabel else c.textSecondary,
+                fontSize      = 18.sp,
+                fontWeight    = FontWeight.SemiBold,
+                letterSpacing = 2.sp,
+                // The live region rides here: this Text's own content changes
+                // eight times per rotation, which is the announce cadence we
+                // want, and it has real bounds so it is actually in the tree.
+                modifier      = Modifier.semantics {
+                    contentDescription = sectorKey
+                    liveRegion = LiveRegionMode.Polite
+                },
+            )
+        }
+
+        // Same copy and the same colour logic as the flat screen's readout, so
+        // the instruction does not change wording when the user raises the
+        // phone mid-walk.
+        // Unlike the flat screen this slot is NOT reserved when empty: the pill
+        // is centred and free-floating, so it growing downward moves nothing
+        // else on screen, and an always-present empty band under the degree
+        // number would just be a taller pill over the scene for no reason.
+        lockedBearing?.let { locked ->
+            val delta = shortestArcDelta(locked, azimuth)
+            val off = abs(delta).roundToInt()
+            val onCourse = abs(delta) <= Constants.Heading.LOCK_ON_COURSE_DEG
+            Text(
+                text = when {
+                    onCourse -> "ON COURSE"
+                    delta > 0 -> "$off° RIGHT"
+                    else -> "$off° LEFT"
+                },
+                color = if (onCourse) c.levelOk else c.textSecondary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.5.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+    }
+}
+
+// ── AR lock control ───────────────────────────────────────────────────────────
+
+/**
+ * Lock / unlock, bottom-left.
+ *
+ * Geometry is copied from [TorchButton] rather than chosen independently: two
+ * controls of different sizes in opposite bottom corners reads as an accident.
+ * The exit button at top-left stays 48 dp on purpose — it is a lower-emphasis
+ * "leave this mode" affordance, not one of the two tools you use *inside* the
+ * mode — and that difference is deliberate rather than an oversight.
+ */
+@Composable
+private fun ArLockButton(
+    locked: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = appColors
+    Box(
+        modifier = modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .background(c.chipBg, CircleShape)
+            .clickable(onClick = onToggle)
+            .semantics {
+                contentDescription = if (locked) "Clear locked bearing" else "Lock this bearing"
+                role = Role.Button
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            // Same glyph pair as the rose hub: open shackle versus closed, so
+            // the state reads without relying on the tint.
+            imageVector = if (locked) Icons.Filled.Lock else Icons.Outlined.LockOpen,
+            contentDescription = null,
+            tint = if (locked) c.levelOk else c.textPrimary,
+            modifier = Modifier.size(24.dp),
         )
     }
 }
@@ -456,6 +626,7 @@ private fun CameraPreview(
     onFovMeasured: (halfFovDeg: Float) -> Unit,
     onCameraBound: (Camera) -> Unit,
     onBindFailed: () -> Unit,
+    onStreamingChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context        = LocalContext.current
@@ -480,6 +651,15 @@ private fun CameraPreview(
         // null when dispose ran.
         var disposed = false
         var boundProvider: ProcessCameraProvider? = null
+        var previewStreamObserver: Observer<PreviewView.StreamState>? = null
+
+        // Timing instrumentation for the AR entry cost. Each stage is logged
+        // relative to the moment this effect ran, so the ~1 s that entry still
+        // takes can be attributed rather than guessed at. Grep: `ar-timing`.
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        fun mark(stage: String) =
+            Log.i("ArOverlayScreen", "ar-timing $stage +${android.os.SystemClock.elapsedRealtime() - t0}ms")
+        mark("effect-start")
 
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener(
@@ -487,6 +667,7 @@ private fun CameraPreview(
                 if (disposed) return@addListener
                 try {
                     val provider = future.get()
+                    mark("provider-resolved")
                     boundProvider = provider
                     val preview  = Preview.Builder().build()
                         .also { it.setSurfaceProvider(previewView.surfaceProvider) }
@@ -496,6 +677,26 @@ private fun CameraPreview(
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         preview,
                     )
+                    mark("bound")
+
+                    // First frame actually on screen — the stage the user
+                    // perceives as "the camera opened".
+                    // Held so disposal can remove it. Left registered, one
+                    // observer leaks per arm/disarm cycle, each retaining a dead
+                    // PreviewView — and worse, tearing that old preview down
+                    // drives it to IDLE, so the stale observer reports
+                    // "not streaming" for a preview nobody is watching. If that
+                    // lands after a newer instance already reported STREAMING,
+                    // the caller hides AR and nothing ever restores it, because
+                    // LiveData will not re-emit a value it already holds.
+                    val streamObserver = Observer<PreviewView.StreamState> { state ->
+                        if (disposed) return@Observer
+                        val streaming = state == PreviewView.StreamState.STREAMING
+                        if (streaming) mark("streaming")
+                        onStreamingChanged(streaming)
+                    }
+                    previewStreamObserver = streamObserver
+                    previewView.previewStreamState.observe(lifecycleOwner, streamObserver)
 
                     // Deliver bound Camera to caller for hoisting.
                     onCameraBound(camera)
@@ -541,6 +742,10 @@ private fun CameraPreview(
                     // user staring at a black screen with cardinal labels
                     // floating on it and no explanation; the caller now says so.
                     Log.w("ArOverlay", "Camera bind failed", e)
+                    // Release anyone gating a transition on the first frame:
+                    // no camera means no frame is ever coming, and waiting for
+                    // one would hang the user on the compass forever.
+                    onStreamingChanged(true)
                     onFovMeasured(Constants.Ar.DEFAULT_FOV_HALF_DEG)
                     onBindFailed()
                 }
@@ -555,6 +760,7 @@ private fun CameraPreview(
             // initialisation that has not resolved, or a wedged camera service,
             // that is an ANR on the way OUT of AR. The already-resolved provider
             // is captured above precisely so this path never blocks.
+            previewStreamObserver?.let { previewView.previewStreamState.removeObserver(it) }
             boundProvider?.unbindAll()
         }
     }
@@ -589,6 +795,8 @@ private fun CardinalOverlay(
     azimuth: Float,
     cameraElevationDeg: Float,
     fovHalfDeg: Float,
+    lockedBearing: Float?,
+    headingDeg: Float,
     modifier: Modifier = Modifier,
 ) {
     // Shared with CompassRose — prevents wrap-around jumps across 0°/360°.
@@ -627,19 +835,78 @@ private fun CardinalOverlay(
             safeFovHalfDeg
         }
 
+        // ── Dead zone: the rule holds still unless you mean it ────────────
+        // The settled elevation only moves once the live reading has been more
+        // than HORIZON_DEAD_ZONE_DEG away from it for HORIZON_COMMIT_MS. Inside
+        // that band — which is where hand tremor and a braced grip's wobble
+        // both live — the rule does not move at all, which is the entire point.
+        var settledElevation by remember { mutableFloatStateOf(cameraElevationDeg) }
+
+        // Keyed on the BOOLEAN "are we outside the dead zone", never on the
+        // elevation itself. Keying a LaunchedEffect on a continuously-varying
+        // float restarts it on every sensor emission — roughly 16 times a
+        // second — so the delay below is cancelled long before it can elapse
+        // and the committed value never moves at all. That froze the horizon
+        // completely, which is the exact opposite of the intended behaviour and
+        // is invisible unless you tilt the phone and watch for movement that
+        // never comes.
+        //
+        // With a boolean key the effect launches once when the displacement
+        // starts, and is cancelled only if the reading comes back inside the
+        // band — which is what "sustained displacement" actually means.
+        val latestElevation by rememberUpdatedState(cameraElevationDeg)
+        val outsideDeadZone =
+            abs(cameraElevationDeg - settledElevation) > Constants.Ar.HORIZON_DEAD_ZONE_DEG
+        LaunchedEffect(outsideDeadZone) {
+            if (!outsideDeadZone) return@LaunchedEffect
+            delay(Constants.Ar.HORIZON_COMMIT_MS)
+            // The newest reading, not the one that tripped the threshold — the
+            // user has been moving for the whole commit window.
+            settledElevation = latestElevation
+        }
+
         // Screen Y grows downward, so a positive elevation (camera aimed up) gives
         // a positive offset — raising the phone pushes the horizon, and the labels
         // on it, down the screen.
-        val fracY = (cameraElevationDeg / vFovHalfDeg).coerceIn(-1.5f, 1.5f)
+        val fracY = (settledElevation / vFovHalfDeg)
+            .coerceIn(-Constants.Ar.HORIZON_TRAVEL_CLAMP, Constants.Ar.HORIZON_TRAVEL_CLAMP)
+        // Eases between committed positions now, rather than chasing a live
+        // signal — so this is a transition, not a tracker.
         val animFracY by animateFloatAsState(
             targetValue   = fracY,
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness    = Spring.StiffnessMediumLow,
+                stiffness    = Spring.StiffnessLow,
             ),
             label = "labelHorizon",
         )
         val yOffsetPx = (animFracY * halfHeightPx + Constants.Ar.HORIZON_BIAS_FRACTION * halfHeightPx).roundToInt()
+
+        // ── The horizon rule ──────────────────────────────────────────────
+        // Drawn before the labels so their chips sit on top of it and punch
+        // their own gaps in it.
+        //
+        // This is the fix for "the labels vibrate vertically", and it is a
+        // perceptual fix rather than a numerical one. Eight chips drifting
+        // independently in mid-air read as broken; the identical motion applied
+        // to one continuous line reads as a horizon being tracked, because the
+        // eye follows a single object instead of eight. The damping change in
+        // Constants.Ar is the other half — together they take the residual from
+        // "shimmering" to "settling".
+        val lockDelta = lockedBearing?.let { shortestArcDelta(it, headingDeg) }
+        val onCourse = lockDelta != null &&
+            abs(lockDelta) <= Constants.Heading.LOCK_ON_COURSE_DEG
+
+        HorizonRule(
+            yOffsetPx = yOffsetPx,
+            widthPx = widthPx,
+            heightPx = heightPx,
+            // The notch marks where the device points. Tinting it green exactly
+            // when the heading has arrived at the locked bearing is the AR twin
+            // of the flat screen's ON COURSE turning green — green still means
+            // "correct", and it appears only when that is true.
+            onCourse = onCourse,
+        )
 
         for (direction in CARDINALS) {
             // Signed angular offset from screen centre: (−180, +180]
@@ -678,6 +945,222 @@ private fun CardinalOverlay(
                 )
             }
         }
+
+        // ── Locked bearing ────────────────────────────────────────────────
+        // A glyph rather than a chip with a letter in it: a ninth labelled
+        // chip on this rule would read as a ninth direction. It also gets its
+        // own vertical lane above the line, so it never collides with a
+        // cardinal chip when the two coincide, and so "the eight reference
+        // points" and "the one place you are heading for" stay legible as two
+        // different kinds of thing.
+        if (lockedBearing != null && lockDelta != null) {
+            val fracX = lockDelta / safeFovHalfDeg
+            val animLockX by animateFloatAsState(
+                targetValue = fracX.coerceIn(-Constants.Ar.CULL_MARGIN, Constants.Ar.CULL_MARGIN),
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+                label = "lockMarker",
+            )
+
+            if (abs(fracX) <= Constants.Ar.CULL_MARGIN) {
+                // On screen: mark it where it actually is.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset {
+                            IntOffset(
+                                (animLockX * halfWidthPx).roundToInt(),
+                                yOffsetPx - with(density) { 24.dp.roundToPx() },
+                            )
+                        },
+                ) {
+                    ArLockMarker(onCourse = onCourse)
+                }
+            } else {
+                // Off screen — including directly behind the user, which is
+                // where "which way do I turn" is the only useful thing left to
+                // say. Same left/right convention as the flat screen, so the
+                // meaning does not invert when the phone comes up.
+                ArLockChevron(
+                    toRight = lockDelta > 0,
+                    degrees = abs(lockDelta).roundToInt(),
+                    yOffsetPx = yOffsetPx,
+                    modifier = Modifier.align(
+                        if (lockDelta > 0) Alignment.CenterEnd else Alignment.CenterStart
+                    ),
+                )
+            }
+        }
+    }
+}
+
+/** The on-screen locked-bearing glyph: the rose's marker, in screen space. */
+@Composable
+private fun ArLockMarker(onCourse: Boolean) {
+    val c = appColors
+    Canvas(modifier = Modifier.size(34.dp)) {
+        val cx = size.width / 2f
+        val top = size.height * 0.12f
+        val ringY = top + 6.dp.toPx()
+
+        // Stem down to the horizon rule, so the glyph is tied to a direction
+        // rather than floating over the scene.
+        drawLine(
+            color = Color.Black.copy(alpha = 0.45f),
+            start = Offset(cx, ringY),
+            end = Offset(cx, size.height),
+            strokeWidth = 3.dp.toPx(),
+        )
+        drawLine(
+            color = c.levelOk,
+            start = Offset(cx, ringY),
+            end = Offset(cx, size.height),
+            strokeWidth = 1.5f.dp.toPx(),
+        )
+
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.45f),
+            radius = 6.dp.toPx() + 1.dp.toPx(),
+            center = Offset(cx, ringY),
+            style = Stroke(width = 3.dp.toPx()),
+        )
+        // Hollow until arrival, filled on it — the same idiom as the rose and
+        // the bubble level.
+        if (onCourse) {
+            drawCircle(color = c.levelOk, radius = 6.dp.toPx(), center = Offset(cx, ringY))
+        } else {
+            drawCircle(
+                color = c.levelOk,
+                radius = 6.dp.toPx(),
+                center = Offset(cx, ringY),
+                style = Stroke(width = 2.dp.toPx()),
+            )
+        }
+    }
+}
+
+/**
+ * Edge indicator for a locked bearing that is outside the camera's view.
+ *
+ * The chevron carries the direction, so the label carries magnitude only —
+ * writing "140° RIGHT" beside an arrow that already points right is the same
+ * redundancy the cardinal word was removed from the HUD for.
+ */
+@Composable
+private fun ArLockChevron(
+    toRight: Boolean,
+    degrees: Int,
+    yOffsetPx: Int,
+    modifier: Modifier = Modifier,
+) {
+    val c = appColors
+    Row(
+        modifier = modifier
+            .offset { IntOffset(0, yOffsetPx) }
+            .padding(horizontal = 16.dp)
+            .background(c.chipBg, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Locked bearing is $degrees degrees to the " +
+                    if (toRight) "right" else "left"
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!toRight) {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowLeft,
+                contentDescription = null,
+                tint = c.levelOk,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Text(
+            text = "$degrees°",
+            color = c.levelOk,
+            fontSize = 16.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (toRight) {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = c.levelOk,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The line the cardinal labels stand on.
+ *
+ * Two strokes, not one: a wider dark stroke under a thin light one, so the rule
+ * stays legible against both a bright sky and a dark treeline without needing
+ * to know which it is over. A single light line disappears over cloud; a single
+ * dark one disappears over shadow.
+ *
+ * Faded to nothing at both ends, so it reads as a horizon continuing past the
+ * frame rather than as a UI element clamped to the screen edges.
+ *
+ * The notch at dead centre is the same idea as the compass rose's lubber index:
+ * it marks the direction the device itself is pointing, which is the bearing
+ * the HUD is showing. Without it the rule is decoration; with it, the overlay
+ * answers "what am I looking at" geometrically as well as numerically.
+ */
+@Composable
+private fun HorizonRule(
+    yOffsetPx: Int,
+    widthPx: Float,
+    heightPx: Float,
+    onCourse: Boolean = false,
+) {
+    val c = appColors
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val y = heightPx / 2f + yOffsetPx
+        if (y < 0f || y > heightPx) return@Canvas
+
+        val fade = { color: Color ->
+            Brush.horizontalGradient(
+                0.00f to color.copy(alpha = 0f),
+                0.18f to color,
+                0.82f to color,
+                1.00f to color.copy(alpha = 0f),
+            )
+        }
+
+        // Shadow pass, then the line itself.
+        drawLine(
+            brush = fade(Color.Black.copy(alpha = 0.45f)),
+            start = Offset(0f, y),
+            end = Offset(widthPx, y),
+            strokeWidth = 3.dp.toPx(),
+        )
+        drawLine(
+            brush = fade(c.textPrimary.copy(alpha = 0.55f)),
+            start = Offset(0f, y),
+            end = Offset(widthPx, y),
+            strokeWidth = 1.dp.toPx(),
+        )
+
+        // Centre notch — "you are pointing here".
+        val notch = 7.dp.toPx()
+        val cx = widthPx / 2f
+        drawLine(
+            color = Color.Black.copy(alpha = 0.45f),
+            start = Offset(cx, y - notch),
+            end = Offset(cx, y + notch),
+            strokeWidth = 3.dp.toPx(),
+        )
+        drawLine(
+            color = if (onCourse) c.levelOk else c.lubber,
+            start = Offset(cx, y - notch),
+            end = Offset(cx, y + notch),
+            strokeWidth = 1.5f.dp.toPx(),
+        )
     }
 }
 

@@ -11,9 +11,12 @@ import com.pubpeb.compass.sensor.ArTriggerGate
 import com.pubpeb.compass.sensor.CompassAccuracy
 import com.pubpeb.compass.sensor.CompassSensorData
 import com.pubpeb.compass.sensor.DeclinationRepository
+import com.pubpeb.compass.sensor.LevelPosture
+import com.pubpeb.compass.sensor.LevelPostureGate
 import com.pubpeb.compass.sensor.SensorRepository
 import com.pubpeb.compass.telemetry.Telemetry
 import com.pubpeb.compass.ui.theme.ThemeMode
+import com.pubpeb.compass.util.adaptiveLowPass
 import com.pubpeb.compass.util.shortestArcDelta
 import com.pubpeb.compass.util.shouldPublishHeading
 import java.io.File
@@ -88,6 +91,31 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     private val _cameraElevation = MutableStateFlow(0f)
     val cameraElevation: StateFlow<Float> = _cameraElevation.asStateFlow()
 
+    /**
+     * Smoothed elevation for AR *horizon placement* only — the vertical twin of
+     * [arAzimuth], and for the same reason.
+     *
+     * Label X went through a heavy second-stage filter and label Y went through
+     * none, so the overlay was steady horizontally and jittery vertically off
+     * one hand's tremor. Two-speed rather than flat, because unlike a bearing
+     * this value is checked against the camera image behind it: see
+     * [Constants.Ar.ELEVATION_SLOW_ALPHA].
+     */
+    private val _arCameraElevation = MutableStateFlow(0f)
+    val arCameraElevation: StateFlow<Float> = _arCameraElevation.asStateFlow()
+
+    /**
+     * Rotation about the device's viewing axis, degrees [-180, +180], 0 = plumb.
+     * The upright level's whole reading. Meaningless while [levelPosture] is
+     * [LevelPosture.FLAT] — see [SensorRepository.screenRoll].
+     */
+    private val _screenRoll = MutableStateFlow(0f)
+    val screenRoll: StateFlow<Float> = _screenRoll.asStateFlow()
+
+    /** Which instrument the level screen should draw. */
+    private val _levelPosture = MutableStateFlow(LevelPosture.FLAT)
+    val levelPosture: StateFlow<LevelPosture> = _levelPosture.asStateFlow()
+
     private val _accuracy = MutableStateFlow(CompassAccuracy.NO_SIGNAL)
     val accuracy: StateFlow<CompassAccuracy> = _accuracy.asStateFlow()
 
@@ -98,9 +126,26 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     private val _declination = MutableStateFlow(0f)
     val declination: StateFlow<Float> = _declination.asStateFlow()
 
-    /** True once a location fix has produced a real declination for this place. */
+    /** True once a declination — fresh or remembered — is available. */
     private val _hasDeclination = MutableStateFlow(false)
     val hasDeclination: StateFlow<Boolean> = _hasDeclination.asStateFlow()
+
+    /**
+     * Bearing the user has locked, in degrees, or null when none is set.
+     *
+     * "Hold this direction" is the question a compass is most often actually
+     * asked, and answering it from the raw heading means doing arithmetic in
+     * your head while walking. Of the largest compass apps on Play none offers
+     * it; the ones that do are the specialist navigation tools.
+     *
+     * Persisted, because the bearing you are following outlives the app being
+     * in the foreground — losing it to a pocket or a phone call would make the
+     * feature useless for the one activity it exists for.
+     */
+    private val _lockedBearing = MutableStateFlow(
+        prefs.getFloat(Constants.Prefs.KEY_LOCKED_BEARING, -1f).takeIf { it >= 0f }
+    )
+    val lockedBearing: StateFlow<Float?> = _lockedBearing.asStateFlow()
 
     private val _themeMode = MutableStateFlow(
         if (prefs.getBoolean(Constants.Prefs.KEY_DAYLIGHT, false)) {
@@ -126,11 +171,45 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val sensorAvailable: StateFlow<Boolean> = _sensorAvailable.asStateFlow()
 
     /**
+     * Whether this device can measure a heading at all.
+     *
+     * Constant for the life of the process — hardware does not appear — but
+     * published as state so the UI reads it the same way it reads everything
+     * else rather than reaching back into the repository.
+     *
+     * Separate from [hasAccelerometer] deliberately. A phone with no
+     * magnetometer cannot show a compass and *can* show the level, and
+     * [sensorAvailable] answers neither question on its own: it was already
+     * computed here, collected by nothing, so a device with no magnetometer
+     * showed a confident, frozen `0° NORTH` — the exact failure the accuracy
+     * watchdog exists to prevent, arriving through the one door it does not
+     * cover.
+     */
+    val hasMagnetometer: StateFlow<Boolean> =
+        MutableStateFlow(sensorRepo.hasMagnetometer).asStateFlow()
+
+    /** Whether this device can measure tilt, which is all the level needs. */
+    val hasAccelerometer: StateFlow<Boolean> =
+        MutableStateFlow(sensorRepo.hasAccelerometer).asStateFlow()
+
+    /**
      * True when the device has been held upright long enough to mean it.
      * Always false while [arAutoSwitch] is off.
      */
     private val _isUpright = MutableStateFlow(false)
     val isUpright: StateFlow<Boolean> = _isUpright.asStateFlow()
+
+    /**
+     * True while AR entry is pending its dwell — the phone is up but the gate
+     * has not opened yet.
+     *
+     * The UI uses this to warm the CameraX provider during the wait instead of
+     * after it. Nothing user-visible may hang off this: it is set on tilt
+     * alone and falls back the moment the phone dips, and it must never open
+     * the camera. See [ArTriggerGate.isArming].
+     */
+    private val _arArming = MutableStateFlow(false)
+    val arArming: StateFlow<Boolean> = _arArming.asStateFlow()
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
@@ -143,7 +222,12 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     /** Heavy second-stage low-pass filter state for [arAzimuth]. */
     private var arAzimuthFiltered = 0f
 
+    /** Two-speed second-stage filter state for [arCameraElevation]. */
+    private var arElevationFiltered = 0f
+
     private val arGate = ArTriggerGate(nowMs = SystemClock::elapsedRealtime)
+
+    private val levelGate = LevelPostureGate()
 
     /** Elapsed-realtime millis of the most recent sensor emission. */
     @Volatile private var lastEmissionAt = 0L
@@ -173,6 +257,34 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     init {
         // Collecting the shared flow is what starts the hardware; the UI drives
         // this via observeWhileVisible() rather than the ViewModel holding it open.
+        restoreRememberedDeclination()
+    }
+
+    /**
+     * Reinstates the last declination this device resolved, if it is recent
+     * enough to still be true.
+     *
+     * Without this, true north was unavailable on every cold start until a
+     * fresh fix arrived — and permanently unavailable to anyone who had denied
+     * location, even though the correct value for their city was sitting in
+     * the preferences from the last time they granted it. A real review asked
+     * for exactly this: "It does not remember its last declination for use."
+     *
+     * Only the angle is stored, never the position — see
+     * [Constants.Prefs.KEY_LAST_DECLINATION].
+     */
+    private fun restoreRememberedDeclination() {
+        val storedAt = prefs.getLong(Constants.Prefs.KEY_LAST_DECLINATION_AT, 0L)
+        if (storedAt <= 0L) return
+
+        // Wall-clock, not elapsedRealtime: this has to survive a reboot, which
+        // is the whole point, and elapsedRealtime resets there.
+        val age = System.currentTimeMillis() - storedAt
+        if (age !in 0..Constants.Heading.DECLINATION_MAX_AGE_MS) return
+
+        _declination.value = prefs.getFloat(Constants.Prefs.KEY_LAST_DECLINATION, 0f)
+        _hasDeclination.value = true
+        Log.i(TAG, "restored declination ${_declination.value} (age ${age}ms)")
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -192,10 +304,35 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         _trueNorth.value = next
         prefs.edit().putBoolean(Constants.Prefs.KEY_TRUE_NORTH, next).apply()
         Log.i(TAG, "trueNorth=$next declination=${_declination.value}")
+
+        // A locked bearing is held in display space, so switching what "0°"
+        // means has to move it by the same amount the heading moves. Otherwise
+        // toggling the tag mid-walk silently rotates the direction the user is
+        // following by the declination — the one error a bearing lock must not
+        // make, and a silent one, since both numbers still look plausible.
+        if (_hasDeclination.value) shiftLockedBearing(if (next) 1f else -1f)
+
         val display = computeDisplayAzimuth()
         publishedAzimuth = display
         _azimuth.value = display
         snapArFilter(display)
+    }
+
+    /**
+     * Locks the current heading as a bearing to follow, or clears the lock.
+     *
+     * Locks to the *displayed* heading, so a lock taken in true-north mode
+     * means the true bearing the user was looking at. Toggling true north
+     * afterwards shifts both the heading and the lock by the same declination,
+     * which keeps "you are 4° left of it" correct in either mode.
+     */
+    fun toggleBearingLock() {
+        val next = if (_lockedBearing.value != null) null else _azimuth.value
+        _lockedBearing.value = next
+        prefs.edit()
+            .putFloat(Constants.Prefs.KEY_LOCKED_BEARING, next ?: -1f)
+            .apply()
+        Log.i(TAG, "lockedBearing=$next")
     }
 
     fun onArOpened(auto: Boolean) = Telemetry.onArOpened(auto)
@@ -227,6 +364,10 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             // in the UI is unaffected because it does not read isUpright.
             arGate.reset()
             _isUpright.value = false
+            // Otherwise a phone already raised when the switch is turned off
+            // leaves this latched true, and the UI keeps warming a camera
+            // provider for an entry that can no longer happen.
+            _arArming.value = false
         }
     }
 
@@ -248,9 +389,29 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             Telemetry.onDeclinationOutcome(acquired = declination != null)
             if (declination == null) return@launch
 
+            // A lock taken before the fix landed is in MAGNETIC space, and this
+            // assignment is about to move the displayed heading into TRUE
+            // space. Shift it on the same edge, for the same reason
+            // toggleTrueNorth does — otherwise the direction the user is
+            // following silently rotates by the declination the moment GPS
+            // answers, and every "N° LEFT/RIGHT" after that is wrong by exactly
+            // that much, with both numbers still looking entirely plausible.
+            //
+            // The false -> true EDGE only. A refined declination while already
+            // in true space needs no shift: the lock is already in that space.
+            val enteringTrueSpace = !_hasDeclination.value && _trueNorth.value
+
             _declination.value = declination
             _hasDeclination.value = true
+            if (enteringTrueSpace) shiftLockedBearing(1f)
             Log.i(TAG, "declination acquired: $declination")
+
+            // Remember the angle — and only the angle — so the next cold start
+            // has true north before any fix arrives.
+            prefs.edit()
+                .putFloat(Constants.Prefs.KEY_LAST_DECLINATION, declination)
+                .putLong(Constants.Prefs.KEY_LAST_DECLINATION_AT, System.currentTimeMillis())
+                .apply()
 
             val display = computeDisplayAzimuth()
             publishedAzimuth = display
@@ -281,10 +442,28 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         _roll.value = data.roll
         _cameraElevation.value = data.cameraElevationDeg
 
+        // Elevation is not cyclic — it lives in [-90, +90] with no seam — so
+        // this is a plain two-speed blend and deliberately not the shortest-arc
+        // one above. Pointing the arc helper at it would be harmless but
+        // misleading; pointing this one at a bearing would be a bug.
+        arElevationFiltered = adaptiveLowPass(
+            current       = arElevationFiltered,
+            target        = data.cameraElevationDeg,
+            slowAlpha     = Constants.Ar.ELEVATION_SLOW_ALPHA,
+            fastAlpha     = Constants.Ar.ELEVATION_FAST_ALPHA,
+            fastThreshold = Constants.Ar.ELEVATION_FAST_THRESHOLD_DEG,
+        )
+        _arCameraElevation.value = arElevationFiltered
+
+        _screenRoll.value = data.screenRollDeg
+        _levelPosture.value = levelGate.update(data.tiltFromFlatDeg)
+
         publishAccuracy(data.accuracy)
 
         _isUpright.value =
             if (_arAutoSwitch.value) arGate.update(data.tiltFromFlatDeg) else false
+        // Read after update(), so it reflects this sample rather than the last.
+        _arArming.value = _arAutoSwitch.value && arGate.isArming
     }
 
     /** Publishes accuracy and logs only the transitions, not every event. */
@@ -319,6 +498,22 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Moves a locked bearing between magnetic and true space.
+     *
+     * [direction] is +1 entering true space, -1 leaving it. A bearing lock is
+     * held in *display* space, so anything that changes what 0° means has to
+     * move the lock by the same amount the heading moves — there are two such
+     * doors, [toggleTrueNorth] and a declination arriving mid-session, and both
+     * must use this.
+     */
+    private fun shiftLockedBearing(direction: Float) {
+        val locked = _lockedBearing.value ?: return
+        val moved = (locked + direction * _declination.value + 360f) % 360f
+        _lockedBearing.value = moved
+        prefs.edit().putFloat(Constants.Prefs.KEY_LOCKED_BEARING, moved).apply()
+    }
 
     /** Immediately snaps the AR azimuth filter to [value], preventing slow drift. */
     private fun snapArFilter(value: Float) {

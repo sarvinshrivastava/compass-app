@@ -51,6 +51,13 @@ enum class CompassAccuracy {
  *                 0 = lying flat (either face), 90 = held upright. This is the
  *                 raw signal the ViewModel applies AR hysteresis to; the
  *                 repository deliberately makes no mode decision itself.
+ * @param screenRollDeg  Rotation of the device about its own viewing axis,
+ *                 degrees [-180, +180]; 0 = plumb portrait, positive =
+ *                 clockwise from the user's point of view. Read straight off
+ *                 the gravity vector rather than from [roll], which is an Euler
+ *                 angle and degenerates at the ±90° pitch this value exists to
+ *                 be used at. Only meaningful in the upright posture — flat on
+ *                 a table it is noise. See [SensorRepository.screenRoll].
  * @param accuracy Latest magnetometer accuracy reported by the platform.
  */
 @Immutable
@@ -60,5 +67,6 @@ data class CompassSensorData(
     val roll: Float = 0f,
     val cameraElevationDeg: Float = 0f,
     val tiltFromFlatDeg: Float = 0f,
+    val screenRollDeg: Float = 0f,
     val accuracy: CompassAccuracy = CompassAccuracy.UNRELIABLE,
 )

@@ -1,5 +1,6 @@
 package com.pubpeb.compass.sensor
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -114,5 +115,68 @@ class ArTriggerGateTest {
         assertTrue(g.isUpright)
         g.reset()
         assertFalse(g.isUpright)
+    }
+
+    // ── Adaptive dwell ───────────────────────────────────────────────────────
+    //
+    // The dwell exists to reject a hand hovering near the entry threshold, not
+    // to tax everybody. It now scales with how far past the threshold the lift
+    // went, so a deliberate raise to eye level engages roughly three times
+    // faster while the anti-flicker guarantee is untouched where it matters.
+
+    @Test
+    fun `dwell is the full duration at the entry threshold`() {
+        assertEquals(800L, gate().dwellFor(65f))
+    }
+
+    @Test
+    fun `dwell is the minimum at and beyond the decisive angle`() {
+        assertEquals(250L, gate().dwellFor(82f))
+        assertEquals(250L, gate().dwellFor(90f))
+    }
+
+    @Test
+    fun `dwell scales linearly between the two`() {
+        // Halfway from 65 to 82 is 73.5; halfway from 800 to 250 is 525.
+        assertEquals(525L, gate().dwellFor(73.5f))
+    }
+
+    @Test
+    fun `a decisive lift engages well before the full dwell`() {
+        val g = gate()
+        assertTrue(g.hold(tiltDeg = 85f, forMs = 300L))
+    }
+
+    @Test
+    fun `a marginal lift still pays the full dwell`() {
+        val g = gate()
+        assertFalse(g.hold(tiltDeg = 66f, forMs = 600L))
+        assertTrue(g.hold(tiltDeg = 66f, forMs = 300L))
+    }
+
+    /**
+     * Peak, not current: a fast raise that settles back is still a fast raise,
+     * so the dwell it already earned must not be revoked when the hand relaxes.
+     */
+    @Test
+    fun `the dwell is charged against the peak tilt, not the latest`() {
+        val g = gate()
+        g.update(85f)          // decisive peak -> 250 ms required
+        now += 300L
+        assertTrue(g.update(70f))
+    }
+
+    /**
+     * The anti-flicker guarantee, restated against the new code path: dipping
+     * below entry must clear the peak as well as the timer, or a single spike
+     * past 82 would leave every later marginal hover on a 250 ms fuse.
+     */
+    @Test
+    fun `a dip below entry clears the earned peak`() {
+        val g = gate()
+        g.update(85f)          // spike
+        g.update(40f)          // dropped back, resets
+        now += 300L
+        assertFalse(g.update(66f))   // marginal lift must pay full dwell again
     }
 }

@@ -1,6 +1,8 @@
 package com.pubpeb.compass.ui
 
 import android.Manifest
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -8,12 +10,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material.icons.Icons
@@ -30,16 +35,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -60,9 +70,14 @@ import com.pubpeb.compass.ui.theme.ThemeMode
 import com.pubpeb.compass.ui.theme.appColors
 import com.pubpeb.compass.util.PermissionAskLog
 import com.pubpeb.compass.util.bearingToFullLabel
+import com.pubpeb.compass.util.bearingToSpokenLabel
 import com.pubpeb.compass.util.normalizedHeading
 import com.pubpeb.compass.util.openAppSettings
+import com.pubpeb.compass.util.shortestArcDelta
 import com.pubpeb.compass.viewmodel.CompassViewModel
+import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Root compass screen.
@@ -167,22 +182,89 @@ private fun CompassContent(
 ) {
     val azimuth        by viewModel.azimuth.collectAsStateWithLifecycle()
     val arAzimuth      by viewModel.arAzimuth.collectAsStateWithLifecycle()
-    val cameraElev     by viewModel.cameraElevation.collectAsStateWithLifecycle()
+    val cameraElev     by viewModel.arCameraElevation.collectAsStateWithLifecycle()
     val trueNorth      by viewModel.trueNorth.collectAsStateWithLifecycle()
     val declination    by viewModel.declination.collectAsStateWithLifecycle()
     val hasDeclination by viewModel.hasDeclination.collectAsStateWithLifecycle()
     val accuracy       by viewModel.accuracy.collectAsStateWithLifecycle()
     val themeMode      by viewModel.themeMode.collectAsStateWithLifecycle()
     val arAutoSwitch   by viewModel.arAutoSwitch.collectAsStateWithLifecycle()
+    val arArming       by viewModel.arArming.collectAsStateWithLifecycle()
+    val hasMagnetometer by viewModel.hasMagnetometer.collectAsStateWithLifecycle()
+    val lockedBearing  by viewModel.lockedBearing.collectAsStateWithLifecycle()
+
+    // ── Open the camera during the AR dwell, not after it ────────────────────
+    // Measured on a Pixel 9a, the AR entry cost breaks down as:
+    //
+    //     provider resolved   + 78 ms
+    //     bound               + 96 ms
+    //     first frame         +507 ms   <- this is the delay
+    //
+    // An earlier version warmed only `ProcessCameraProvider.getInstance()`,
+    // which is the 78 ms stage, specifically to avoid opening the camera early.
+    // It was measurably almost useless: the cost is the sensor producing its
+    // first frame, and nothing but actually opening the camera starts that
+    // clock. So the camera is now bound during the dwell.
+    //
+    // The tradeoff, taken deliberately: the platform's camera indicator lights
+    // up while the compass is still on screen, a few hundred milliseconds
+    // before the AR view appears. That is a real cost for an app that makes a
+    // point of not being creepy, and it is only spent when the user has already
+    // raised the phone past the AR threshold — i.e. when they are on their way
+    // into the camera view regardless.
+    // Debounced, NOT raw. `arArming` goes true on a single sample above 65 deg
+    // and false on a single sample below it, so a hand hovering at the
+    // threshold flips it at the sensor rate — which would compose and dispose
+    // the camera bind over and over, strobing the platform's privacy
+    // indicator. Require the lift to persist before opening anything, and keep
+    // it open briefly through a dip so ordinary noise does not tear it down.
+    val armingRequested = arArming && arAutoSwitch
+    var warmingCamera by remember { mutableStateOf(false) }
+    LaunchedEffect(armingRequested) {
+        if (armingRequested) {
+            delay(Constants.Ar.WARM_DEBOUNCE_MS)
+            warmingCamera = true
+        } else {
+            delay(Constants.Ar.WARM_RELEASE_MS)
+            warmingCamera = false
+        }
+    }
 
     // Sits outside the Crossfade: a Dialog is an overlay and must not be torn
     // down and rebuilt when the AR/flat transition runs.
     var showSettings by remember { mutableStateOf(false) }
+    var showCalibration by remember { mutableStateOf(false) }
+
+    // ── Automatic calibration prompt ─────────────────────────────────────────
+    // At most once per session, and only after the heading has been untrustworthy
+    // long enough to mean it. Saveable, so a rotation does not re-arm it.
+    var autoPromptSpent by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(accuracy, autoPromptSpent) {
+        if (autoPromptSpent || accuracy != CompassAccuracy.UNRELIABLE) return@LaunchedEffect
+        // A change in accuracy cancels and relaunches this effect, so reaching
+        // the far side of the delay *is* the proof that it stayed UNRELIABLE
+        // throughout — no re-check needed here.
+        delay(Constants.Ui.CALIBRATION_PROMPT_DELAY_MS)
+        autoPromptSpent = true
+        showCalibration = true
+    }
+
     if (showSettings) {
         SettingsDialog(
             arAutoSwitch        = arAutoSwitch,
             onArAutoSwitchChange = viewModel::setArAutoSwitch,
+            onOpenCalibration   = {
+                showSettings = false
+                showCalibration = true
+            },
             onDismiss           = { showSettings = false },
+        )
+    }
+
+    if (showCalibration) {
+        CalibrationDialog(
+            accuracy  = accuracy,
+            onDismiss = { showCalibration = false },
         )
     }
 
@@ -193,13 +275,29 @@ private fun CompassContent(
         if (locationGranted) viewModel.toggleTrueNorth() else onRequestLocation()
     }
 
-    // 300 ms crossfade between the flat compass rose and the AR camera overlay.
-    Crossfade(
-        targetState   = isArMode,
+    // ── The transition waits for a picture ───────────────────────────────────
+    // Crossfading the instant the gate opens showed a black rectangle for half
+    // a second while the sensor woke up, which reads as the app hanging. The
+    // compass now holds until the preview is actually streaming, so AR arrives
+    // fully formed. Combined with binding during the dwell, the wait usually
+    // happens before the gate even opens and this costs nothing.
+    var arStreaming by remember { mutableStateOf(false) }
+    LaunchedEffect(isArMode, warmingCamera) {
+        if (!isArMode && !warmingCamera) arStreaming = false
+    }
+
+    val arVisible = isArMode && arStreaming
+    val arAlpha by animateFloatAsState(
+        targetValue = if (arVisible) 1f else 0f,
         animationSpec = tween(durationMillis = Constants.Ui.MODE_TRANSITION_MS),
-        label         = "arCrossfade",
-    ) { arActive ->
-        if (arActive) {
+        label = "arFade",
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Composed while arming too, invisibly — that is what gets the camera
+        // open ahead of the gate. Kept out of the semantics tree while hidden
+        // so a screen reader never lands on an overlay the user cannot see.
+        if (isArMode || warmingCamera) {
             ArOverlayScreen(
                 // Deadbanded heading for the numeric HUD, so the AR readout never
                 // disagrees with the flat screen's readout for the same bearing.
@@ -208,10 +306,18 @@ private fun CompassContent(
                 // smoothing is worth the lag.
                 arAzimuth          = arAzimuth,
                 cameraElevationDeg = cameraElev,
+                lockedBearing      = lockedBearing,
+                onToggleLock       = viewModel::toggleBearingLock,
                 onExitAr           = { onArModeChange(false) },
-                modifier           = Modifier.fillMaxSize(),
+                onStreamingChanged = { arStreaming = it },
+                modifier           = Modifier
+                    .fillMaxSize()
+                    .alpha(arAlpha)
+                    .then(if (arVisible) Modifier else Modifier.clearAndSetSemantics {}),
             )
-        } else {
+        }
+
+        if (arAlpha < 1f) {
             CompassFlatContent(
                 azimuth           = azimuth,
                 trueNorth         = trueNorth,
@@ -219,10 +325,15 @@ private fun CompassContent(
                 declination       = declination,
                 accuracy          = accuracy,
                 themeMode         = themeMode,
+                hasMagnetometer   = hasMagnetometer,
+                lockedBearing     = lockedBearing,
                 onModeTagClick    = onModeTagClick,
+                onToggleLock      = viewModel::toggleBearingLock,
                 onToggleDaylight  = viewModel::toggleDaylightMode,
                 onOpenSettings    = { showSettings = true },
+                onOpenCalibration = { showCalibration = true },
                 onEnterAr         = { onArModeChange(true) },
+                modifier          = Modifier.alpha(1f - arAlpha),
             )
         }
     }
@@ -232,21 +343,26 @@ private fun CompassContent(
 
 @Composable
 private fun CompassFlatContent(
+    modifier: Modifier = Modifier,
     azimuth: Float,
     trueNorth: Boolean,
     hasDeclination: Boolean,
     declination: Float,
     accuracy: CompassAccuracy,
     themeMode: ThemeMode,
+    hasMagnetometer: Boolean,
+    lockedBearing: Float?,
     onModeTagClick: () -> Unit,
+    onToggleLock: () -> Unit,
     onToggleDaylight: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenCalibration: () -> Unit,
     onEnterAr: () -> Unit,
 ) {
     val c = appColors
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(c.bgDeep)
             .padding(horizontal = 24.dp, vertical = 16.dp),
@@ -261,14 +377,33 @@ private fun CompassFlatContent(
             onEnterAr        = onEnterAr,
         )
 
+        // ── No magnetometer: say so, and stop ─────────────────────────────
+        // Some phones ship without one. The rose and the readout render
+        // perfectly on such a device and report a confident 0° NORTH forever,
+        // because no sensor event ever arrives to move them — the one way to
+        // reach a frozen heading that the staleness watchdog cannot see, since
+        // it watches for emissions *stopping* and here they never start.
+        if (!hasMagnetometer) {
+            MissingSensorNotice(
+                headline = "No compass sensor",
+                detail   = "This device has no magnetometer, so it cannot measure " +
+                    "a heading. The bubble level on the next page still works.",
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            return@Column
+        }
+
         // ── Heading readout: the screen's hero, just above the rose ───────
         HeadingReadout(
-            azimuth        = azimuth,
-            trueNorth      = trueNorth,
-            hasDeclination = hasDeclination,
-            declination    = declination,
-            accuracy       = accuracy,
-            onModeTagClick = onModeTagClick,
+            azimuth           = azimuth,
+            trueNorth         = trueNorth,
+            hasDeclination    = hasDeclination,
+            declination       = declination,
+            accuracy          = accuracy,
+            lockedBearing     = lockedBearing,
+            onModeTagClick    = onModeTagClick,
+            onOpenCalibration = onOpenCalibration,
         )
 
         // ── Compass rose ──────────────────────────────────────────────────
@@ -281,6 +416,8 @@ private fun CompassFlatContent(
         ) {
             CompassRose(
                 azimuth  = azimuth,
+                lockedBearing = lockedBearing,
+                onToggleLock  = onToggleLock,
                 modifier = Modifier
                     .sizeIn(maxWidth = Constants.Ui.ROSE_MAX_WIDTH)
                     .padding(8.dp),
@@ -340,17 +477,25 @@ private fun TopInfoBar(
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 /**
- * Deliberately holds one switch.
+ * One switch, and one action.
  *
  * Everything else the user can change is reachable in one tap on the compass
  * itself: true north from the MAG/TRUE tag, daylight from the top bar. Only the
  * AR auto-switch belongs here, because it is a preference about behaviour
  * rather than a mode you flip while looking at a bearing.
+ *
+ * Calibration is the one action, and it is here because the automatic prompt is
+ * the *platform's* opinion about whether the heading is trustworthy. Someone
+ * who thinks the bearing looks wrong while the platform still reports it fine
+ * needs a way to act on that without waiting for the platform to agree — and
+ * "where is the calibration option" is a question a settings screen is expected
+ * to answer.
  */
 @Composable
 private fun SettingsDialog(
     arAutoSwitch: Boolean,
     onArAutoSwitchChange: (Boolean) -> Unit,
+    onOpenCalibration: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = appColors
@@ -400,10 +545,36 @@ private fun SettingsDialog(
                         ),
                     )
                 }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .sizeIn(minHeight = 48.dp)
+                        .clickable(onClick = onOpenCalibration)
+                        .semantics { role = Role.Button },
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "Calibrate the compass",
+                        color = c.textPrimary,
+                        fontSize = 15.sp,
+                    )
+                    Text(
+                        text = "What to do when the heading looks wrong",
+                        color = c.textSecondary,
+                        fontSize = 12.sp,
+                    )
+                }
             }
         }
     }
 }
+
+/**
+ * Height held for the turn-guidance line whether or not it has anything to say.
+ * 13 sp of monospace plus a little breathing room; see the note at its use site.
+ */
+private val LOCK_LINE_HEIGHT = 20.dp
 
 // ── Heading readout (above rose) ──────────────────────────────────────────────
 
@@ -416,6 +587,7 @@ private fun SettingsDialog(
  * it already occupies: no dialog, banner or snackbar, none of which a person
  * holding a phone at arm's length in the field will read.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HeadingReadout(
     azimuth: Float,
@@ -423,7 +595,9 @@ private fun HeadingReadout(
     hasDeclination: Boolean,
     declination: Float,
     accuracy: CompassAccuracy,
+    lockedBearing: Float?,
     onModeTagClick: () -> Unit,
+    onOpenCalibration: () -> Unit,
 ) {
     val c = appColors
 
@@ -433,43 +607,76 @@ private fun HeadingReadout(
     val trueActive = trueNorth && hasDeclination
     val confidence = confidenceNote(accuracy, c)
 
-    // Rebuilt only when the whole degree changes. Keyed on the raw azimuth this
-    // fires on every sensor event and TalkBack narrates a continuous stream.
+    // Read when the user focuses the readout, so asking for the heading always
+    // returns the exact one. Rebuilt only when the whole degree changes; keyed
+    // on the raw azimuth this would be rebuilt on every sensor event.
     val description = remember(rounded) {
-        "Heading $rounded degrees, ${bearingToFullLabel(rounded.toFloat())}"
+        "Heading $rounded degrees, ${bearingToSpokenLabel(rounded.toFloat())}"
     }
 
+    // ── What gets announced automatically, and how often ──────────────────────
+    // Not the same string. A live region re-announces whenever its description
+    // changes, and the precise one changes on every whole degree — roughly 360
+    // announcements per rotation of the phone, which is not a heading readout
+    // so much as a denial of service, and is exactly what the accessibility
+    // guidance on live regions warns against.
+    //
+    // The useful hands-free signal is the sector, which changes eight times per
+    // rotation. It rides on its own zero-size node so the visible readout can
+    // keep its exact description for on-demand reads: one node cannot carry
+    // both a precise description and a coarse announcement.
+    val sector = remember(rounded) { bearingToSpokenLabel(rounded.toFloat()) }
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.semantics(mergeDescendants = true) {
-                this.contentDescription = description
+        // ── Two nodes, deliberately unmerged ──────────────────────────────
+        // The degree node carries the exact heading and is read on focus. The
+        // cardinal node carries the live region.
+        //
+        // The live region rides the cardinal label because that Text's content
+        // already changes exactly eight times per rotation — the cadence we
+        // want to announce at — whereas the degree description changes ~360
+        // times and would make TalkBack narrate continuously.
+        //
+        // An earlier attempt parked the live region on a zero-size Box instead.
+        // That silently announces nothing: Compose builds the accessibility
+        // node map by intersecting each node's touch bounds with the remaining
+        // uncovered region, and a 0x0 rect yields an empty Region, so the node
+        // is dropped from the tree entirely. Bounds must be non-empty for a
+        // node to exist for a screen reader at all.
+        Text(
+            text       = "$rounded°",
+            color      = c.textPrimary,
+            // Normal, not Light: hairline strokes disappear under glare,
+            // which is precisely when this number matters most.
+            fontSize   = 52.sp,
+            fontWeight = FontWeight.Normal,
+            fontFamily = FontFamily.Monospace,
+            lineHeight = 52.sp,
+            modifier   = Modifier.semantics { this.contentDescription = description },
+        )
+        Text(
+            text          = fullLabel,
+            color         = c.textPrimary,
+            fontSize      = 16.sp,
+            letterSpacing = 2.sp,
+            modifier      = Modifier.semantics {
+                this.contentDescription = sector
                 // Polite, not Assertive: a heading change must never interrupt
                 // whatever the user is already being told.
                 liveRegion = LiveRegionMode.Polite
             },
-        ) {
-            Text(
-                text       = "$rounded°",
-                color      = c.textPrimary,
-                // Normal, not Light: hairline strokes disappear under glare,
-                // which is precisely when this number matters most.
-                fontSize   = 52.sp,
-                fontWeight = FontWeight.Normal,
-                fontFamily = FontFamily.Monospace,
-                lineHeight = 52.sp,
-            )
-            Text(
-                text          = fullLabel,
-                color         = c.textPrimary,
-                fontSize      = 16.sp,
-                letterSpacing = 2.sp,
-            )
-        }
+        )
 
-        Row(
-            verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // FlowRow, not Row: the worst case here is `TRUE · 4.2° DECL` beside a
+        // confidence warning, which is about 29 characters of letter-spaced
+        // monospace and overflows a 360 dp-class screen. A plain Row clips it
+        // with no warning at build time and no symptom on the test device,
+        // which is the kind of thing that only ever shows up in a review
+        // screenshot from a phone nobody here owns.
+        FlowRow(
+            verticalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             // Mode tag — the only control on this screen. sizeIn before
             // clickable so the 48.dp touch target is real, not just visual.
@@ -491,15 +698,92 @@ private fun HeadingReadout(
                     fontSize      = 12.sp,
                     letterSpacing = 1.sp,
                     fontFamily    = FontFamily.Monospace,
+                    // FlowRow's verticalArrangement positions LINES, not items
+                    // within a line; items are top-aligned. Without this the
+                    // short texts sit flush with the top of the 48dp mode tag.
+                    modifier      = Modifier.align(Alignment.CenterVertically),
                 )
             }
             confidence?.let { (text, color) ->
+                // Tappable, because a warning the user cannot act on is only
+                // half an answer: this line is where they find out the heading
+                // is suspect, so it is where "what do I do about it" has to
+                // live. NO SENSOR SIGNAL is excluded — calibration cannot fix
+                // a sensor that is not reporting, and offering it there would
+                // send the user through a figure eight for nothing.
+                val actionable = accuracy != CompassAccuracy.NO_SIGNAL
                 Text(
                     text          = text,
                     color         = color,
                     fontSize      = 12.sp,
                     letterSpacing = 1.sp,
                     fontFamily    = FontFamily.Monospace,
+                    modifier      = if (actionable) {
+                        Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .clickable(onClick = onOpenCalibration)
+                            .wrapContentSize(Alignment.Center)
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = "$text. Open calibration help"
+                            }
+                    } else {
+                        Modifier
+                    }.align(Alignment.CenterVertically),
+                )
+            }
+        }
+
+        // ── Turn guidance, on its own line ────────────────────────────────
+        // Deliberately NOT in the row above. That row answers "how much should
+        // I trust this number" — the mode tag and the confidence warning are
+        // both about trust. A turn instruction is a different kind of thing
+        // entirely, and styling it identically at 12 sp monospace made a
+        // navigation delta and a sensor-health warning compete for the same
+        // glance.
+        //
+        // The rose shows which way to turn geometrically, and the magnitude now
+        // sits beside the marker there. This line stays anyway: the readout is
+        // where the eye already is, the rose is far below it, and this is the
+        // only form of the instruction a screen reader can convey at all.
+        // ── Reserved slot, occupied or not ────────────────────────────────
+        // The height is unconditional. Letting this line appear and disappear
+        // made the whole column — degree readout, rose, everything — jump the
+        // instant the lock was tapped, so the control the user just hit moved
+        // out from under their finger. A readout that shifts when you touch it
+        // is worse than one that carries an empty row.
+        Spacer(modifier = Modifier.height(6.dp))
+        // Fades rather than vanishing, matching the rim marker — an accidental
+        // unlock is invisible if the element it removes disappears between two
+        // frames. See Constants.Ui.LOCK_FADE_MS.
+        var lastLocked by remember { mutableFloatStateOf(0f) }
+        lockedBearing?.let { lastLocked = it }
+        val lineAlpha by animateFloatAsState(
+            targetValue = if (lockedBearing != null) 1f else 0f,
+            animationSpec = tween(durationMillis = Constants.Ui.LOCK_FADE_MS),
+            label = "lockLineFade",
+        )
+
+        Box(
+            modifier = Modifier.height(LOCK_LINE_HEIGHT),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (lineAlpha > 0.01f) {
+                val locked = lockedBearing ?: lastLocked
+                val delta = shortestArcDelta(locked, azimuth)
+                val off = abs(delta).roundToInt()
+                val onCourse = abs(delta) <= Constants.Heading.LOCK_ON_COURSE_DEG
+                Text(
+                    text = when {
+                        onCourse -> "ON COURSE"
+                        delta > 0 -> "$off° RIGHT"
+                        else -> "$off° LEFT"
+                    },
+                    color = (if (onCourse) c.levelOk else c.textSecondary)
+                        .copy(alpha = lineAlpha),
+                    fontSize = 13.sp,
+                    letterSpacing = 1.5.sp,
+                    fontFamily = FontFamily.Monospace,
                 )
             }
         }

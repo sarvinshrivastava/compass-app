@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.sqrt
 
 /**
@@ -130,6 +131,7 @@ class SensorRepository(context: Context) {
                         roll               = rollDeg,
                         cameraElevationDeg = cameraElevationDeg,
                         tiltFromFlatDeg    = tiltFromFlat(gravity),
+                        screenRollDeg      = screenRoll(gravity),
                         accuracy           = accuracy,
                     )
                 )
@@ -151,6 +153,22 @@ class SensorRepository(context: Context) {
     /** True if both required sensors are present on this device. */
     val isAvailable: Boolean
         get() = accelerometer != null && magnetometer != null
+
+    /**
+     * True if this device can measure a heading at all.
+     *
+     * Reported separately from [hasAccelerometer] because the two failures are
+     * not the same failure to a user. A phone with no magnetometer — they exist,
+     * mostly at the budget end — can still run the level perfectly; only the
+     * compass is impossible. Collapsing both into [isAvailable] would send that
+     * user away from a screen that works.
+     */
+    val hasMagnetometer: Boolean
+        get() = magnetometer != null
+
+    /** True if the device can measure tilt, which is what the level needs. */
+    val hasAccelerometer: Boolean
+        get() = accelerometer != null
 
     companion object {
 
@@ -187,5 +205,66 @@ class SensorRepository(context: Context) {
             val ratio = (abs(gravity[2]) / magnitude).coerceIn(0f, 1f)
             return Math.toDegrees(acos(ratio).toDouble()).toFloat()
         }
+
+        /**
+         * Rotation of the device about its own viewing axis, in degrees
+         * [-180, +180]. 0° is plumb portrait; positive is the device rotated
+         * clockwise as the user sees it.
+         *
+         * This is the reading a spirit level needs when the phone is held
+         * upright against something — "is this frame straight?" — and it is
+         * **not** [roll]. `getOrientation`'s roll is one Euler angle of a
+         * three-angle decomposition that degenerates as pitch approaches ±90°,
+         * which is exactly the posture this is for: at the gimbal lock the
+         * platform's roll becomes numerically unstable and then meaningless.
+         * Taking the angle straight off the gravity vector has no such
+         * singularity, because it never decomposes anything — it just reads
+         * where "down" falls within the plane of the screen.
+         *
+         * Derivation. Mind the sign convention: a stationary Android
+         * accelerometer reports **+9.81 along whichever device axis points
+         * up**, not along the direction gravity pulls. Lying face-up the
+         * reading is `(0, 0, +9.81)`; held upright in portrait it is
+         * `(0, +9.81, 0)`.
+         *
+         * Rotating the device **clockwise** by θ leaves world-up at
+         * `(-G sinθ, G cosθ, 0)` in device coordinates — device +X has swung
+         * *below* world-horizontal, so the x component goes negative. Hence
+         * θ = `atan2(-g.x, g.y)`.
+         *
+         * Verification:
+         * ```
+         * θ =   0°: g = ( 0.00,  9.81) -> atan2( 0.00, 9.81) =    0°  ✓
+         * θ = +10°: g = (-1.70,  9.66) -> atan2( 1.70, 9.66) =  +10°  ✓
+         * θ = -10°: g = ( 1.70,  9.66) -> atan2(-1.70, 9.66) =  -10°  ✓
+         * θ = +90°: g = (-9.81,  0.00) -> atan2( 9.81, 0.00) =  +90°  ✓
+         * ```
+         *
+         * This has now been wrong twice, in two different ways, and both times
+         * something downstream hid it:
+         *
+         *  - First as `atan2(-x, -y)`, off a derivation with gravity pointing
+         *    *down* the device axes. That is a constant 180° error, which
+         *    [com.pubpeb.compass.ui.foldToQuarterTurn] folds away exactly.
+         *  - Then as `atan2(x, y)`, which is the correct magnitude with the
+         *    **sign inverted** — positive for counter-clockwise. The numeric
+         *    readout takes `abs()`, so only the drawn rule was wrong, mirrored
+         *    about the vertical.
+         *
+         * Neither survived contact with the real convention above, and neither
+         * was caught by testing against a gravity vector built from the same
+         * mistaken premise — which is a circular check, not a test. Derive the
+         * vector from "the accelerometer reads +G along the axis pointing up"
+         * every time, as `ScreenRollTest` now does.
+         *
+         * Meaningless when the device is flat — `g.x` and `g.y` are both near
+         * zero there and the angle is pure noise — so only read it in the
+         * upright posture, which is what [Constants.Level.UPRIGHT_ENTER_DEG]
+         * gates.
+         */
+        internal fun screenRoll(gravity: FloatArray): Float =
+            Math.toDegrees(
+                atan2(-gravity[0].toDouble(), gravity[1].toDouble())
+            ).toFloat()
     }
 }

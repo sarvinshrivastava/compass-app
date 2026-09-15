@@ -31,3 +31,22 @@ fun bearingToFullLabel(azimuth: Float): String = when {
     azimuth < 292.5f -> "WEST"
     else             -> "NW"
 }
+
+/**
+ * Returns the spoken cardinal name for the given azimuth.
+ *
+ * Separate from [bearingToFullLabel] because that one is tuned for the screen,
+ * where "NE" is instantly legible and "NORTH-EAST" is three times as wide. A
+ * screen reader handed "NE" says the two letters, and "SW" comes out as
+ * "southwest" only by luck of the pronunciation dictionary. Spell it.
+ */
+fun bearingToSpokenLabel(azimuth: Float): String = when {
+    azimuth < 22.5f  || azimuth >= 337.5f -> "north"
+    azimuth < 67.5f  -> "north-east"
+    azimuth < 112.5f -> "east"
+    azimuth < 157.5f -> "south-east"
+    azimuth < 202.5f -> "south"
+    azimuth < 247.5f -> "south-west"
+    azimuth < 292.5f -> "west"
+    else             -> "north-west"
+}
