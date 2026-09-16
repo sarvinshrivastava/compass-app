@@ -403,4 +403,21 @@ object Constants {
         const val KEY_ASKED_PREFIX = "permission_asked_"
     }
 
+    /**
+     * The app's public pages, reachable from the Settings about block.
+     *
+     * **Always this host.** The `-sarvinshrivastavas-projects.vercel.app` form
+     * of the same deployment 302s to a Vercel SSO login, so a link built that
+     * way sends the user to a sign-in wall for a page that is meant to be
+     * public — see `learnings/vercel-alias-deployment-protection.md`.
+     *
+     * No `.html` suffix: the site sets `cleanUrls: true`, so `/privacy` is the
+     * canonical path and `/privacy.html` merely redirects to it.
+     */
+    object Links {
+        private const val SITE = "https://minimal-compass.vercel.app"
+        const val PRIVACY = "$SITE/privacy"
+        const val SUPPORT = "$SITE/support"
+    }
+
 }

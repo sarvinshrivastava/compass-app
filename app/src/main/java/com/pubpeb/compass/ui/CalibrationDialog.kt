@@ -225,8 +225,15 @@ private fun InterferenceHint(text: String) {
     }
 }
 
-/** Sensor accuracy as a phrase and a colour, for [AccuracyRow]. */
-private fun accuracyLabel(
+/**
+ * Sensor accuracy as a phrase and a colour.
+ *
+ * Shared with the Settings dialog's Calibrate row so both surfaces name the
+ * same state the same way. Two independent mappings had already started to
+ * drift — Settings said nothing at all above LOW, which is exactly when
+ * somebody who distrusts the heading goes looking.
+ */
+internal fun accuracyLabel(
     accuracy: CompassAccuracy,
     c: AppPalette,
 ): Pair<String, Color> = when (accuracy) {

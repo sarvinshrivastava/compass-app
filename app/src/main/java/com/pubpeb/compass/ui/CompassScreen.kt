@@ -19,18 +19,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,10 +73,12 @@ import com.pubpeb.compass.ui.theme.AppPalette
 import com.pubpeb.compass.ui.theme.ThemeMode
 import com.pubpeb.compass.ui.theme.appColors
 import com.pubpeb.compass.util.PermissionAskLog
+import com.pubpeb.compass.util.appVersionLabel
 import com.pubpeb.compass.util.bearingToFullLabel
 import com.pubpeb.compass.util.bearingToSpokenLabel
 import com.pubpeb.compass.util.normalizedHeading
 import com.pubpeb.compass.util.openAppSettings
+import com.pubpeb.compass.util.openUrl
 import com.pubpeb.compass.util.shortestArcDelta
 import com.pubpeb.compass.viewmodel.CompassViewModel
 import kotlinx.coroutines.delay
@@ -125,6 +132,13 @@ fun CompassScreen(
         !locationPermission.status.shouldShowRationale &&
         hasAsked
 
+    val northAvailability = when {
+        locationGranted -> NorthModeAvailability.GRANTED
+        locationBlocked -> NorthModeAvailability.BLOCKED
+        hasAsked -> NorthModeAvailability.DECLINED
+        else -> NorthModeAvailability.NEVER_ASKED
+    }
+
     // Only ever fires to fetch declination — never to unblock the UI.
     LaunchedEffect(locationGranted) {
         if (locationGranted) viewModel.updateDeclination()
@@ -152,21 +166,19 @@ fun CompassScreen(
             arWarmAllowed     = arWarmAllowed,
             onArModeChange    = onArModeChange,
             locationGranted   = locationGranted,
-            onRequestLocation = {
-                if (locationBlocked) {
-                    // The in-app prompt is spent. System settings is the only
-                    // remaining route to true north, so send the user there
-                    // rather than firing a request that cannot succeed.
-                    context.openAppSettings()
-                } else {
-                    PermissionAskLog.recordAsked(
-                        context,
-                        Manifest.permission.ACCESS_COARSE_LOCATION,
-                    )
-                    hasAsked = true
-                    locationPermission.launchPermissionRequest()
-                }
+            northAvailability = northAvailability,
+            // Only ever called from the explainer dialog, never straight from a
+            // tap: a bare system prompt triggered by three letters nobody has
+            // explained is the worst moment to spend the one ask Android grants.
+            onAllowLocation   = {
+                PermissionAskLog.recordAsked(
+                    context,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+                hasAsked = true
+                locationPermission.launchPermissionRequest()
             },
+            onOpenSettings    = { context.openAppSettings() },
         )
     }
 }
@@ -180,7 +192,9 @@ private fun CompassContent(
     arWarmAllowed: Boolean,
     onArModeChange: (Boolean) -> Unit,
     locationGranted: Boolean,
-    onRequestLocation: () -> Unit,
+    northAvailability: NorthModeAvailability,
+    onAllowLocation: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val azimuth        by viewModel.azimuth.collectAsStateWithLifecycle()
     val arAzimuth      by viewModel.arAzimuth.collectAsStateWithLifecycle()
@@ -227,8 +241,38 @@ private fun CompassContent(
 
     // Sits outside the Crossfade: a Dialog is an overlay and must not be torn
     // down and rebuilt when the AR/flat transition runs.
-    var showSettings by remember { mutableStateOf(false) }
-    var showCalibration by remember { mutableStateOf(false) }
+    // Saveable, not remembered: a font-scale or locale change recreates the
+    // activity, and an unsaved flag closed the dialog the user was reading
+    // with no way to tell what had happened.
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showNorthDialog by rememberSaveable { mutableStateOf(false) }
+
+    // The user asked for true north; the grant may arrive several seconds and
+    // one system dialog later. Without holding the request, granting satisfies
+    // the precondition without ever acting on it — and because trueNorth is a
+    // persisted preference that may already be false, the compass simply stayed
+    // magnetic and the tap looked ignored.
+    var requestedTrueNorth by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(locationGranted, requestedTrueNorth) {
+        if (locationGranted && requestedTrueNorth) {
+            viewModel.setTrueNorth(true)
+            requestedTrueNorth = false
+        }
+    }
+    var showCalibration by rememberSaveable { mutableStateOf(false) }
+
+    val context = LocalContext.current
+
+    val fetchingFix by viewModel.fetchingDeclination.collectAsStateWithLifecycle()
+    val fixFailed by viewModel.declinationFailed.collectAsStateWithLifecycle()
+
+    // Only an explicit tap on TRUE earns a report about the fix.
+    // Constants.Prefs.KEY_TRUE_NORTH defaults to *on*, so gating the note on
+    // the preference alone put a red NO LOCATION FIX in front of a first-run
+    // user who had asked for nothing — and a compass showing magnetic north
+    // without a location is this app working exactly as designed, not a
+    // failure to announce.
+    var askedForTrue by rememberSaveable { mutableStateOf(false) }
 
     // ── Automatic calibration prompt ─────────────────────────────────────────
     // At most once per session, and only after the heading has been untrustworthy
@@ -244,18 +288,6 @@ private fun CompassContent(
         showCalibration = true
     }
 
-    if (showSettings) {
-        SettingsDialog(
-            arAutoSwitch        = arAutoSwitch,
-            onArAutoSwitchChange = viewModel::setArAutoSwitch,
-            onOpenCalibration   = {
-                showSettings = false
-                showCalibration = true
-            },
-            onDismiss           = { showSettings = false },
-        )
-    }
-
     if (showCalibration) {
         CalibrationDialog(
             accuracy  = accuracy,
@@ -266,8 +298,67 @@ private fun CompassContent(
     // Tapping the mode tag means "give me true north". If we cannot yet, that
     // means asking for location first — the toggle then applies on the next tap,
     // once a fix has produced a real declination.
-    val onModeTagClick: () -> Unit = {
-        if (locationGranted) viewModel.toggleTrueNorth() else onRequestLocation()
+    // Selecting magnetic always works — it needs nothing. Selecting true either
+    // toggles, or explains what it would need and why.
+    val onSelectMagnetic: () -> Unit = {
+        requestedTrueNorth = false
+        askedForTrue = false
+        viewModel.setTrueNorth(false)
+    }
+    val onSelectTrue: () -> Unit = {
+        askedForTrue = true
+        if (northAvailability == NorthModeAvailability.GRANTED) {
+            viewModel.setTrueNorth(true)
+        } else {
+            // Held so the grant, whenever it lands, is acted on.
+            requestedTrueNorth = true
+            showNorthDialog = true
+        }
+    }
+
+    if (showNorthDialog) {
+        NorthModeDialog(
+            state = northAvailability,
+            onAllow = { showNorthDialog = false; onAllowLocation() },
+            onOpenSettings = { showNorthDialog = false; onOpenSettings() },
+            onDismiss = {
+                showNorthDialog = false
+                // Declining is an answer. Leaving the request armed would flip
+                // the compass to true north if permission arrived later by some
+                // other route, which the user never asked for.
+                requestedTrueNorth = false
+            },
+        )
+    }
+
+    if (showSettings) {
+        SettingsDialog(
+            northAvailability   = northAvailability,
+            trueNorthActive     = trueNorth && hasDeclination,
+            awaitingNorthFix    = askedForTrue && trueNorth && fetchingFix && !hasDeclination,
+            declination         = declination,
+            accuracy            = accuracy,
+            onSelectMagnetic    = onSelectMagnetic,
+            // Closes Settings first: reaching true north from here needs the
+            // explainer, and two stacked dialogs is one too many. Selecting
+            // magnetic, or true when it is already available, changes the mode
+            // in place and leaves Settings open — a row that answers on the
+            // spot never has to close the screen to do it.
+            onSelectTrue        = {
+                if (northAvailability != NorthModeAvailability.GRANTED) showSettings = false
+                onSelectTrue()
+            },
+            arAutoSwitch        = arAutoSwitch,
+            onArAutoSwitchChange = viewModel::setArAutoSwitch,
+            onOpenCalibration   = {
+                showSettings = false
+                showCalibration = true
+            },
+            version             = remember(context) { context.appVersionLabel() },
+            onOpenPrivacy       = { context.openUrl(Constants.Links.PRIVACY) },
+            onOpenSupport       = { context.openUrl(Constants.Links.SUPPORT) },
+            onDismiss           = { showSettings = false },
+        )
     }
 
     // ── The transition waits for a picture ───────────────────────────────────
@@ -322,10 +413,23 @@ private fun CompassContent(
                 themeMode         = themeMode,
                 hasMagnetometer   = hasMagnetometer,
                 lockedBearing     = lockedBearing,
-                onModeTagClick    = onModeTagClick,
+                northAvailability = northAvailability,
+                // The fetch itself, not "no declination yet" — the old form
+                // stayed true forever once a fetch failed.
+                //
+                // Both are additionally gated on there being no declination to
+                // fall back on. A remembered angle makes true north work on the
+                // first frame, so a refresh running (or failing) behind it is
+                // not the user's problem and must not be reported as one.
+                awaitingNorthFix  = askedForTrue && trueNorth && fetchingFix && !hasDeclination,
+                northFixFailed    = askedForTrue && trueNorth && fixFailed && !hasDeclination,
+                onRetryNorthFix   = viewModel::updateDeclination,
+                onSelectMagnetic  = onSelectMagnetic,
+                onSelectTrue      = onSelectTrue,
                 onToggleLock      = viewModel::toggleBearingLock,
                 onToggleDaylight  = viewModel::toggleDaylightMode,
                 onOpenSettings    = { showSettings = true },
+                onOpenNorthMode   = { showNorthDialog = true },
                 onOpenCalibration = { showCalibration = true },
                 onEnterAr         = { onArModeChange(true) },
                 modifier          = Modifier.alpha(1f - arAlpha),
@@ -347,11 +451,17 @@ private fun CompassFlatContent(
     themeMode: ThemeMode,
     hasMagnetometer: Boolean,
     lockedBearing: Float?,
-    onModeTagClick: () -> Unit,
+    northAvailability: NorthModeAvailability,
+    awaitingNorthFix: Boolean,
+    northFixFailed: Boolean,
+    onRetryNorthFix: () -> Unit,
+    onSelectMagnetic: () -> Unit,
+    onSelectTrue: () -> Unit,
     onToggleLock: () -> Unit,
     onToggleDaylight: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenCalibration: () -> Unit,
+    onOpenNorthMode: () -> Unit,
     onEnterAr: () -> Unit,
 ) {
     val c = appColors
@@ -397,7 +507,12 @@ private fun CompassFlatContent(
             declination       = declination,
             accuracy          = accuracy,
             lockedBearing     = lockedBearing,
-            onModeTagClick    = onModeTagClick,
+            northAvailability = northAvailability,
+            awaitingNorthFix  = awaitingNorthFix,
+            northFixFailed    = northFixFailed,
+            onRetryNorthFix   = onRetryNorthFix,
+            onSelectMagnetic  = onSelectMagnetic,
+            onSelectTrue      = onSelectTrue,
             onOpenCalibration = onOpenCalibration,
         )
 
@@ -472,10 +587,10 @@ private fun TopInfoBar(
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 /**
- * One switch, and one action.
+ * One control, one switch, one action — and one row shape for all three.
  *
  * Everything else the user can change is reachable in one tap on the compass
- * itself: true north from the MAG/TRUE tag, daylight from the top bar. Only the
+ * itself: north mode from the MAG/TRUE pill, daylight from the top bar. Only the
  * AR auto-switch belongs here, because it is a preference about behaviour
  * rather than a mode you flip while looking at a bearing.
  *
@@ -485,15 +600,42 @@ private fun TopInfoBar(
  * needs a way to act on that without waiting for the platform to agree — and
  * "where is the calibration option" is a question a settings screen is expected
  * to answer.
+ *
+ * ### Why north mode is the pill again, not a row that quietly toggles
+ * This row used to close the dialog and flip the mode on tap: an explanatory
+ * paragraph with a state tag beside it turned out to be a concealed switch, and
+ * the user landed back on a changed compass with nothing to say what had done
+ * it. It now carries the same [NorthModePill] as the compass face, so the thing
+ * that looks like the control *is* the control, labelled, in both places, with
+ * the same two tap targets.
+ *
+ * ### Why every row has the same shape
+ * [SettingsRow] puts the trailing element on the **title line**, not beside the
+ * whole title-and-subtitle block. Centred against the block, `TRUE` floated
+ * alongside line two of a three-line subtitle and read as belonging to the
+ * sentence rather than to the setting. It also lets the subtitles stay static:
+ * everything that varies lives in the trailing slot, which is where the eye
+ * already goes looking for state.
  */
 @Composable
 private fun SettingsDialog(
+    northAvailability: NorthModeAvailability,
+    trueNorthActive: Boolean,
+    awaitingNorthFix: Boolean,
+    declination: Float,
+    accuracy: CompassAccuracy,
+    onSelectMagnetic: () -> Unit,
+    onSelectTrue: () -> Unit,
     arAutoSwitch: Boolean,
     onArAutoSwitchChange: (Boolean) -> Unit,
     onOpenCalibration: () -> Unit,
+    version: String?,
+    onOpenPrivacy: () -> Unit,
+    onOpenSupport: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = appColors
+    val (accuracyText, accuracyTint) = accuracyLabel(accuracy, c)
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = c.bgCard) {
@@ -511,27 +653,57 @@ private fun SettingsDialog(
                     fontWeight = FontWeight.SemiBold,
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                // First because it is the one a fresh user is most likely to be
+                // hunting for.
+                SettingsRow(
+                    title = "North mode",
+                    subtitle = "Magnetic works everywhere and needs nothing. True " +
+                        "north matches paper maps and needs a rough location.",
+                    // The correction figure lives here rather than on the compass
+                    // face: it is meaningless to most people, it is derived from
+                    // where you are, and on the face it pushed the mode control
+                    // sideways every time it changed width. Someone working from
+                    // a paper map needs the number and will come looking.
+                    detail = if (trueNorthActive) {
+                        "Correcting by %+.1f° where you are.".format(declination)
+                    } else {
+                        null
+                    },
+                    // The trailing element is interactive here, so the row must
+                    // not merge: merging would swallow the pill's two buttons
+                    // into one unreachable node.
+                    mergeWholeRow = false,
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Auto-switch to AR",
-                            color = c.textPrimary,
-                            fontSize = 15.sp,
-                        )
-                        Text(
-                            text = "Raise the phone to open the camera view",
-                            color = c.textSecondary,
-                            fontSize = 12.sp,
-                        )
-                    }
-                    Spacer(modifier = Modifier.padding(horizontal = 8.dp))
+                    NorthModePill(
+                        trueActive = trueNorthActive,
+                        availability = northAvailability,
+                        awaitingFix = awaitingNorthFix,
+                        onSelectMagnetic = onSelectMagnetic,
+                        onSelectTrue = onSelectTrue,
+                    )
+                }
+
+                SettingsRow(
+                    title = "Auto-switch to AR",
+                    // Says all three conditions, because it used to say none of
+                    // them: auto-entry is scoped to this page, needs portrait,
+                    // and needs the phone to have been lowered since arriving —
+                    // so "raise the phone to open the camera view" described
+                    // behaviour the app had stopped having.
+                    subtitle = "On the compass page, raise the phone upright in " +
+                        "portrait to open the camera view.",
+                    modifier = Modifier.toggleable(
+                        value = arAutoSwitch,
+                        role = Role.Switch,
+                        onValueChange = onArAutoSwitchChange,
+                    ),
+                ) {
                     Switch(
                         checked = arAutoSwitch,
-                        onCheckedChange = onArAutoSwitchChange,
+                        // Null, not the callback: the whole row is the target,
+                        // and a Switch that also handled its own tap would have
+                        // toggled twice where the two overlap.
+                        onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor   = c.levelOk,
                             checkedTrackColor   = c.levelOk.copy(alpha = 0.35f),
@@ -541,27 +713,208 @@ private fun SettingsDialog(
                     )
                 }
 
-                Column(
+                SettingsRow(
+                    title = "Calibrate the compass",
+                    subtitle = "What to do when the heading looks wrong.",
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .sizeIn(minHeight = 48.dp)
                         .clickable(onClick = onOpenCalibration)
                         .semantics { role = Role.Button },
-                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Text(
-                        text = "Calibrate the compass",
-                        color = c.textPrimary,
-                        fontSize = 15.sp,
-                    )
-                    Text(
-                        text = "What to do when the heading looks wrong",
-                        color = c.textSecondary,
-                        fontSize = 12.sp,
-                    )
+                    // Live accuracy, in the slot the other two rows use for
+                    // state. Settings said nothing about accuracy above LOW,
+                    // which is exactly the case this row exists for: the
+                    // platform reporting the heading fine while the user can
+                    // see that it is not.
+                    AccuracyTag(label = accuracyText, tint = accuracyTint)
+                }
+
+                AboutBlock(
+                    version = version,
+                    onOpenPrivacy = onOpenPrivacy,
+                    onOpenSupport = onOpenSupport,
+                )
+
+                // The only one of the app's three dialogs that had no way out
+                // but a back gesture or a tap on the scrim, neither of which is
+                // visible.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(text = "Close", color = c.textPrimary, fontSize = 14.sp)
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * Privacy, support, and which build this is.
+ *
+ * ### Why it is in the app and not only on the website
+ * This app ships Crashlytics and Analytics. The policy that says so lived in
+ * exactly two places a user is not: the Play listing, which they saw once
+ * before installing, and a website they have no reason to know exists. Somebody
+ * wondering what a compass does with a location fix was, until now, holding the
+ * one surface that could not answer.
+ *
+ * ### Why it is quieter than the rows above
+ * These are references, not settings — nothing here changes what the compass
+ * does. They sit below a rule, at the size of the subtitles rather than the
+ * titles, so the three things a user actually came to change keep the weight.
+ */
+@Composable
+private fun AboutBlock(
+    version: String?,
+    onOpenPrivacy: () -> Unit,
+    onOpenSupport: () -> Unit,
+) {
+    val c = appColors
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        HorizontalDivider(color = c.textSecondary.copy(alpha = 0.18f))
+        Spacer(modifier = Modifier.height(4.dp))
+
+        AboutLink(text = "Privacy policy", onClick = onOpenPrivacy)
+        AboutLink(text = "Help and support", onClick = onOpenSupport)
+
+        // Omitted rather than faked when the package lookup fails — see
+        // appVersionLabel. A wrong build number in a bug report is worse than
+        // no build number.
+        version?.let {
+            Text(
+                text = "Version $it",
+                color = c.textSecondary,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+/**
+ * One reference link.
+ *
+ * Carries its own 48 dp target and says "opens in browser", because both leave
+ * the app — and a link that navigates away without warning is the one kind of
+ * tap it is worth telling a screen reader about in advance.
+ */
+@Composable
+private fun AboutLink(text: String, onClick: () -> Unit) {
+    val c = appColors
+    Text(
+        text = text,
+        color = c.textPrimary,
+        fontSize = 14.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .sizeIn(minHeight = 48.dp)
+            .clickable(onClick = onClick)
+            .wrapContentSize(Alignment.CenterStart)
+            .semantics {
+                role = Role.Button
+                contentDescription = "$text, opens in your browser"
+            },
+    )
+}
+
+/**
+ * One settings row: title and state on the top line, explanation beneath.
+ *
+ * @param mergeWholeRow collapse the row into a single accessibility node. True
+ *   whenever [trailing] is inert — a Switch driven by the row, or a status tag —
+ *   so TalkBack reads one thing instead of three. False when [trailing] is
+ *   itself interactive, since merging would hide its controls.
+ */
+@Composable
+private fun SettingsRow(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    detail: String? = null,
+    mergeWholeRow: Boolean = true,
+    trailing: @Composable () -> Unit,
+) {
+    val c = appColors
+    val spoken = listOfNotNull(title, subtitle, detail).joinToString(" ")
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .sizeIn(minHeight = 48.dp)
+            .then(
+                if (mergeWholeRow) {
+                    Modifier.semantics(mergeDescendants = true) { }
+                } else {
+                    Modifier
+                }
+            ),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                color = c.textPrimary,
+                fontSize = 15.sp,
+                modifier = Modifier
+                    .weight(1f)
+                    // Unmerged rows have no single node to carry the setting, so
+                    // the title becomes it and the lines below are cleared —
+                    // otherwise the explanation is three separate swipe stops
+                    // sitting between the name and the control it describes.
+                    .then(
+                        if (mergeWholeRow) {
+                            Modifier
+                        } else {
+                            Modifier.semantics { contentDescription = spoken }
+                        }
+                    ),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            trailing()
+        }
+        Text(
+            text = subtitle,
+            color = c.textSecondary,
+            fontSize = 12.sp,
+            modifier = if (mergeWholeRow) Modifier else Modifier.clearAndSetSemantics { },
+        )
+        detail?.let {
+            Text(
+                text = it,
+                color = c.textSecondary,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = if (mergeWholeRow) Modifier else Modifier.clearAndSetSemantics { },
+            )
+        }
+    }
+}
+
+/** Sensor accuracy as a dot and a word, for the Calibrate row's trailing slot. */
+@Composable
+private fun AccuracyTag(label: String, tint: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .background(tint, CircleShape),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = label,
+            color = tint,
+            fontSize = 11.sp,
+            letterSpacing = 1.sp,
+            fontFamily = FontFamily.Monospace,
+        )
     }
 }
 
@@ -591,7 +944,12 @@ private fun HeadingReadout(
     declination: Float,
     accuracy: CompassAccuracy,
     lockedBearing: Float?,
-    onModeTagClick: () -> Unit,
+    northAvailability: NorthModeAvailability,
+    awaitingNorthFix: Boolean,
+    northFixFailed: Boolean,
+    onRetryNorthFix: () -> Unit,
+    onSelectMagnetic: () -> Unit,
+    onSelectTrue: () -> Unit,
     onOpenCalibration: () -> Unit,
 ) {
     val c = appColors
@@ -662,43 +1020,25 @@ private fun HeadingReadout(
             },
         )
 
-        // FlowRow, not Row: the worst case here is `TRUE · 4.2° DECL` beside a
-        // confidence warning, which is about 29 characters of letter-spaced
-        // monospace and overflows a 360 dp-class screen. A plain Row clips it
-        // with no warning at build time and no symptom on the test device,
-        // which is the kind of thing that only ever shows up in a review
-        // screenshot from a phone nobody here owns.
+        // ── The pill sits alone, and that is the point ────────────────────
+        // It used to share a FlowRow with the correction figure and the
+        // calibration warning, so it slid sideways whenever either appeared or
+        // changed width — and switching modes back and forth meant chasing a
+        // target that moved between taps. Anything that can appear beside it
+        // goes on its own line below instead.
+        NorthModePill(
+            trueActive       = trueActive,
+            availability     = northAvailability,
+            awaitingFix      = awaitingNorthFix,
+            onSelectMagnetic = onSelectMagnetic,
+            onSelectTrue     = onSelectTrue,
+        )
+
         FlowRow(
             verticalArrangement = Arrangement.Center,
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            // Mode tag — the only control on this screen. sizeIn before
-            // clickable so the 48.dp touch target is real, not just visual.
-            Text(
-                text          = if (trueActive) "TRUE" else "MAG",
-                color         = c.textSecondary,
-                fontSize      = 12.sp,
-                letterSpacing = 1.sp,
-                fontFamily    = FontFamily.Monospace,
-                modifier      = Modifier
-                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                    .clickable(onClick = onModeTagClick)
-                    .wrapContentSize(Alignment.Center),
-            )
-            if (trueActive) {
-                Text(
-                    text          = "· %.1f° DECL".format(declination),
-                    color         = c.textSecondary,
-                    fontSize      = 12.sp,
-                    letterSpacing = 1.sp,
-                    fontFamily    = FontFamily.Monospace,
-                    // FlowRow's verticalArrangement positions LINES, not items
-                    // within a line; items are top-aligned. Without this the
-                    // short texts sit flush with the top of the 48dp mode tag.
-                    modifier      = Modifier.align(Alignment.CenterVertically),
-                )
-            }
             confidence?.let { (text, color) ->
                 // Tappable, because a warning the user cannot act on is only
                 // half an answer: this line is where they find out the heading
@@ -725,6 +1065,46 @@ private fun HeadingReadout(
                     } else {
                         Modifier
                     }.align(Alignment.CenterVertically),
+                )
+            }
+
+            // ── Where waiting and failing are reported ────────────────────
+            // In words, once, and never as an animation. The pill used to
+            // carry a looping ellipsis for this; it sat inside the control on
+            // the app's main screen and, because its condition was "no
+            // declination yet", a fetch that found no fix left it cycling for
+            // the life of the process.
+            //
+            // Failure is the case that actually needed saying. Without it a
+            // deliberate tap on TRUE simply bounced back to MAG after ten
+            // seconds with no reason given, and nothing ever retried.
+            when {
+                northFixFailed -> Text(
+                    text          = "NO LOCATION FIX",
+                    color         = c.levelWarn,
+                    fontSize      = 12.sp,
+                    letterSpacing = 1.sp,
+                    fontFamily    = FontFamily.Monospace,
+                    modifier      = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .clickable(onClick = onRetryNorthFix)
+                        .wrapContentSize(Alignment.Center)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription =
+                                "No location fix, so the compass is showing " +
+                                    "magnetic north. Double tap to try again."
+                        }
+                        .align(Alignment.CenterVertically),
+                )
+
+                awaitingNorthFix -> Text(
+                    text          = "GETTING LOCATION",
+                    color         = c.textSecondary,
+                    fontSize      = 12.sp,
+                    letterSpacing = 1.sp,
+                    fontFamily    = FontFamily.Monospace,
+                    modifier      = Modifier.align(Alignment.CenterVertically),
                 )
             }
         }
