@@ -111,3 +111,13 @@ __pycache__/
 # MCP scratch output and one-off visual checks — never part of the build.
 .playwright-mcp/
 iconcheck.png
+
+# ── BMAD v6 ──────────────────────────────────────────────────────────────
+# Regenerate with:
+#   npx bmad-method@6.12.0 install --directory . --modules bmm \
+#     --tools claude-code --no-shims --yes
+# The installed framework and its generated Claude skills are reinstallable and
+# never worth a diff. `_bmad-output/` IS tracked: it holds the architecture
+# spine and its decision memlog, which are authored, not generated.
+_bmad/
+.claude/skills/
