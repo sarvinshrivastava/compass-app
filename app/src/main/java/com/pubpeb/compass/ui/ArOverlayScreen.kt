@@ -12,10 +12,7 @@ import androidx.camera.core.Preview
 import androidx.camera.core.TorchState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,7 +53,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,7 +93,6 @@ import com.pubpeb.compass.util.bearingToSpokenLabel
 import com.pubpeb.compass.util.normalizedHeading
 import com.pubpeb.compass.util.openAppSettings
 import com.pubpeb.compass.util.shortestArcDelta
-import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.roundToInt
@@ -146,7 +141,7 @@ private val CARDINALS = listOf(
 fun ArOverlayScreen(
     azimuth: Float,
     arAzimuth: Float,
-    cameraElevationDeg: Float,
+    horizonElevationDeg: Float,
     onExitAr: () -> Unit,
     modifier: Modifier = Modifier,
     lockedBearing: Float? = null,
@@ -201,7 +196,7 @@ fun ArOverlayScreen(
                 ArContent(
                     azimuth      = azimuth,
                     arAzimuth    = arAzimuth,
-                    cameraElevationDeg = cameraElevationDeg,
+                    horizonElevationDeg = horizonElevationDeg,
                     onExitAr     = onExitAr,
                     lockedBearing = lockedBearing,
                     onToggleLock  = onToggleLock,
@@ -248,7 +243,7 @@ fun ArOverlayScreen(
 private fun ArContent(
     azimuth: Float,
     arAzimuth: Float,
-    cameraElevationDeg: Float,
+    horizonElevationDeg: Float,
     onExitAr: () -> Unit,
     lockedBearing: Float?,
     onToggleLock: (() -> Unit)?,
@@ -296,7 +291,7 @@ private fun ArContent(
         if (!cameraFailed) {
             CardinalOverlay(
                 azimuth      = arAzimuth,
-                cameraElevationDeg = cameraElevationDeg,
+                horizonElevationDeg = horizonElevationDeg,
                 fovHalfDeg   = fovHalfDeg,
                 lockedBearing = lockedBearing,
                 headingDeg   = azimuth,
@@ -793,7 +788,7 @@ private fun CameraPreview(
 @Composable
 private fun CardinalOverlay(
     azimuth: Float,
-    cameraElevationDeg: Float,
+    horizonElevationDeg: Float,
     fovHalfDeg: Float,
     lockedBearing: Float?,
     headingDeg: Float,
@@ -809,10 +804,7 @@ private fun CardinalOverlay(
     // smoothing between StateFlow emissions.
     val animatedAzimuth by animateFloatAsState(
         targetValue   = continuousAzimuth,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness    = Spring.StiffnessMediumLow,
-        ),
+        animationSpec = instrumentSpec(),
         label = "arAzimuth",
     )
 
@@ -840,44 +832,19 @@ private fun CardinalOverlay(
         // than HORIZON_DEAD_ZONE_DEG away from it for HORIZON_COMMIT_MS. Inside
         // that band — which is where hand tremor and a braced grip's wobble
         // both live — the rule does not move at all, which is the entire point.
-        var settledElevation by remember { mutableFloatStateOf(cameraElevationDeg) }
-
-        // Keyed on the BOOLEAN "are we outside the dead zone", never on the
-        // elevation itself. Keying a LaunchedEffect on a continuously-varying
-        // float restarts it on every sensor emission — roughly 16 times a
-        // second — so the delay below is cancelled long before it can elapse
-        // and the committed value never moves at all. That froze the horizon
-        // completely, which is the exact opposite of the intended behaviour and
-        // is invisible unless you tilt the phone and watch for movement that
-        // never comes.
-        //
-        // With a boolean key the effect launches once when the displacement
-        // starts, and is cancelled only if the reading comes back inside the
-        // band — which is what "sustained displacement" actually means.
-        val latestElevation by rememberUpdatedState(cameraElevationDeg)
-        val outsideDeadZone =
-            abs(cameraElevationDeg - settledElevation) > Constants.Ar.HORIZON_DEAD_ZONE_DEG
-        LaunchedEffect(outsideDeadZone) {
-            if (!outsideDeadZone) return@LaunchedEffect
-            delay(Constants.Ar.HORIZON_COMMIT_MS)
-            // The newest reading, not the one that tripped the threshold — the
-            // user has been moving for the whole commit window.
-            settledElevation = latestElevation
-        }
-
         // Screen Y grows downward, so a positive elevation (camera aimed up) gives
         // a positive offset — raising the phone pushes the horizon, and the labels
         // on it, down the screen.
-        val fracY = (settledElevation / vFovHalfDeg)
+        //
+        // `horizonElevationDeg` is already committed by HorizonCommitGate in the
+        // ViewModel; this composable does not decide when the horizon may move.
+        val fracY = (horizonElevationDeg / vFovHalfDeg)
             .coerceIn(-Constants.Ar.HORIZON_TRAVEL_CLAMP, Constants.Ar.HORIZON_TRAVEL_CLAMP)
         // Eases between committed positions now, rather than chasing a live
         // signal — so this is a transition, not a tracker.
         val animFracY by animateFloatAsState(
             targetValue   = fracY,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness    = Spring.StiffnessLow,
-            ),
+            animationSpec = horizonSpec(),
             label = "labelHorizon",
         )
         val yOffsetPx = (animFracY * halfHeightPx + Constants.Ar.HORIZON_BIAS_FRACTION * halfHeightPx).roundToInt()
@@ -924,10 +891,7 @@ private fun CardinalOverlay(
             // so Compose assigns the same slot table entry on every recomposition.
             val animFracX by animateFloatAsState(
                 targetValue   = fracX,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness    = Spring.StiffnessMediumLow,
-                ),
+                animationSpec = instrumentSpec(),
                 label = "label_${direction.label}",
             )
 
@@ -957,10 +921,7 @@ private fun CardinalOverlay(
             val fracX = lockDelta / safeFovHalfDeg
             val animLockX by animateFloatAsState(
                 targetValue = fracX.coerceIn(-Constants.Ar.CULL_MARGIN, Constants.Ar.CULL_MARGIN),
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
+                animationSpec = instrumentSpec(),
                 label = "lockMarker",
             )
 
@@ -1223,7 +1184,7 @@ private fun TorchButton(
 
     val glowAlpha by animateFloatAsState(
         targetValue   = if (isTorchOn) 1f else 0f,
-        animationSpec = tween(durationMillis = 300),
+        animationSpec = chromeSpec(Constants.Ui.MODE_TRANSITION_MS),
         label         = "torchGlow",
     )
     val borderColor = if (isTorchOn) c.textPrimary else c.textSecondary.copy(alpha = 0.5f)

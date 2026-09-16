@@ -15,9 +15,9 @@ import kotlin.math.max
  * `tan(tilt) > 1` — a hard 45° boundary. 45° is how people hold a phone while
  * walking and glancing, so a single noisy sample either side of it flipped the
  * whole screen into a camera view and back. Entry now needs
- * [Constants.Ar.ENTER_DEG] sustained for [Constants.Ar.DWELL_MS]; exit is
- * immediate below [Constants.Ar.EXIT_DEG], because someone lowering the phone
- * wants the compass back without waiting.
+ * [Constants.Ar.ENTER_DEG] sustained for a dwell that scales with how
+ * decisive the lift was; exit is immediate below [Constants.Ar.EXIT_DEG],
+ * because someone lowering the phone wants the compass back without waiting.
  *
  * The gap between the two thresholds is the hysteresis band: once engaged, the
  * view survives down to 50°, so a hand drifting between 50° and 65° holds
@@ -29,6 +29,8 @@ class ArTriggerGate(
     private val dwellMs: Long = Constants.Ar.DWELL_MS,
     private val dwellMinMs: Long = Constants.Ar.DWELL_MIN_MS,
     private val decisiveDeg: Float = Constants.Ar.DECISIVE_DEG,
+    private val portraitRollDeg: Float = Constants.Ar.PORTRAIT_ROLL_DEG,
+    private val portraitRollExitDeg: Float = Constants.Ar.PORTRAIT_ROLL_EXIT_DEG,
     private val nowMs: () -> Long,
 ) {
     var isUpright: Boolean = false
@@ -78,7 +80,29 @@ class ArTriggerGate(
      * @param tiltDeg angle from flat, [0, 90] — see
      *   [SensorRepository.tiltFromFlat].
      */
-    fun update(tiltDeg: Float): Boolean {
+    fun update(tiltDeg: Float, screenRollDeg: Float): Boolean {
+        // Rolled toward landscape is not a request for the camera, however
+        // steeply the phone is tilted — see Constants.Ar.PORTRAIT_ROLL_DEG.
+        // Checked before anything else so a device rolled while already engaged
+        // drops straight back out rather than holding the camera open.
+        // Hysteresis on roll too: engaged, the view survives out to the wider
+        // exit band; not engaged, arming needs the tighter one. A bare edge
+        // here chattered on any hand held near 45°, and because the reset below
+        // also cleared the dwell and the peak, a steady lift at that roll could
+        // never accumulate enough of either to engage at all.
+        // Only meaningful once the device is off flat. screenRoll is derived
+        // from the x/y components of gravity, which are both near zero when the
+        // phone lies flat — so the angle there is pure noise, and testing it
+        // during a raise cleared the dwell and the earned peak at random.
+        val rollIsMeaningful = tiltDeg > exitDeg
+        val rollLimit = if (isUpright) portraitRollExitDeg else portraitRollDeg
+        if (rollIsMeaningful && rollFromUpright(screenRollDeg) > rollLimit) {
+            isUpright = false
+            uprightSince = null
+            peakTiltDeg = 0f
+            return false
+        }
+
         if (isUpright) {
             if (tiltDeg < exitDeg) {
                 isUpright = false
@@ -118,6 +142,17 @@ class ArTriggerGate(
         if (span <= 0f) return dwellMinMs
         val t = ((tiltDeg - enterDeg) / span).coerceIn(0f, 1f)
         return (dwellMs - (dwellMs - dwellMinMs) * t).toLong()
+    }
+
+    /**
+     * How far the device is rolled from upright, in degrees [0, 90].
+     *
+     * Folds onto a half turn so 0° and 180° both read as 0: someone holding
+     * the phone upside down is still holding it portrait.
+     */
+    private fun rollFromUpright(screenRollDeg: Float): Float {
+        val wrapped = ((screenRollDeg % 180f) + 180f) % 180f      // [0, 180)
+        return if (wrapped > 90f) 180f - wrapped else wrapped
     }
 
     /** Forces the gate closed — used when the user switches auto-entry off. */

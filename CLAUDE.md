@@ -46,16 +46,16 @@ UI composables            — collectAsStateWithLifecycle()
 
 ### Package Layout
 
-- **`sensor/`** — `SensorRepository` (hardware → Flow), `CompassSensorData` (data class: azimuth, pitch, roll, cameraElevationDeg, tiltFromFlatDeg, screenRollDeg, accuracy), `CompassAccuracy` enum, `ArTriggerGate`, `LevelPostureGate`, `DeclinationRepository`
+- **`sensor/`** — `SensorRepository` (hardware → Flow), `CompassSensorData` (data class: azimuth, pitch, roll, cameraElevationDeg, tiltFromFlatDeg, screenRollDeg, accuracy), `CompassAccuracy` enum, and the decision gates: `ArTriggerGate`, `LevelPostureGate`, `HorizonCommitGate`, `CameraWarmGate`, plus `DeclinationRepository`
 - **`viewmodel/`** — `CompassViewModel` (single ViewModel shared across both pages)
-- **`ui/`** — `MainScreen` (pager root), `CompassScreen` (page 0), `TiltScreen` (page 1), `ArOverlayScreen` (AR camera overlay), `CompassRose`, `BubbleLevelIndicator` (flat posture), `PlumbLevelIndicator` (upright posture), `CalibrationDialog`, `theme/Theme`
+- **`ui/`** — `MainScreen` (pager root), `CompassScreen` (page 0), `TiltScreen` (page 1), `ArOverlayScreen` (AR camera overlay), `CompassRose`, `BubbleLevelIndicator` (flat posture), `PlumbLevelIndicator` (upright posture), `CalibrationDialog`, `Page` (pager destinations + their per-page policy), `MotionSpecs` (the one reduce-motion gate), `theme/Theme`
 - **`widget/`** — `CompassWidget` (GlanceAppWidget), `CompassWidgetReceiver`, `CompassWidgetUpdateWorker`
 
 ### Navigation
 
 `MainScreen` hosts a `HorizontalPager` (2 pages) plus a two-dot page indicator — there is **no `NavigationBar`**. It was removed deliberately: 80dp of the compass screen to give the bubble level equal billing with the compass inverted the app's priority. The dots are decorative (`clearAndSetSemantics {}`), not a control; the swipe is the navigation.
 
-`MainActivity` owns the single `CompassViewModel` and hoists it *above* `MyCompassTheme` so the Daylight toggle can re-theme the app; `MainScreen(viewModel:)` takes it as a required parameter and passes it to both pages. Horizontal pager swipe is disabled while AR mode is active (the camera view consumes the same gesture).
+`MainActivity` owns the single `CompassViewModel` and hoists it *above* `CompassTheme` so the Daylight toggle can re-theme the app; `MainScreen(viewModel:)` takes it as a required parameter and passes it to both pages. Horizontal pager swipe is disabled while AR mode is active (the camera view consumes the same gesture).
 
 ### Constants
 
@@ -140,7 +140,7 @@ precisely so red keeps that one meaning — see the note in `CompassRose`.
 
 `ArOverlayScreen` (`ui/ArOverlayScreen.kt`) is a fullscreen CameraX-based composable that overlays floating cardinal-direction labels on a live camera preview.
 
-**Auto-trigger logic** — `sensor/ArTriggerGate.kt` owns the decision and applies **hysteresis**: enter above `Constants.Ar.ENTER_DEG = 65f`, exit below `Constants.Ar.EXIT_DEG = 50f`, with a `Constants.Ar.DWELL_MS = 800L` dwell before entry. The gate takes an injectable `nowMs: () -> Long` so it unit-tests with no Android framework — see `ArTriggerGateTest`, which includes the 45°-oscillation regression test. Auto-entry is user-toggleable (`Constants.Prefs.KEY_AR_AUTO`, default on); when off, `isUpright` is held false entirely. The old bare 45° threshold fired at the angle people naturally hold a phone, so the camera flickered on and off continuously. `MainScreen` keeps an `arModeManual: Boolean?` override in **`rememberSaveable`** (`null` = auto) and clears it on the falling edge of `isUpright` **only when it was set to `false`** — clearing a forced-*on* override too meant an incidental `false→true→false` blip threw the user out of an AR view they had opened deliberately. `CompassScreen` Crossfades between `CompassFlatContent` and `ArOverlayScreen` in 300 ms.
+**Auto-trigger logic** — `sensor/ArTriggerGate.kt` owns the decision and applies **hysteresis**: enter above `Constants.Ar.ENTER_DEG`, exit below `Constants.Ar.EXIT_DEG`, with a dwell that scales from `DWELL_MS` at the entry angle down to `DWELL_MIN_MS` at `DECISIVE_DEG`. Entry additionally requires the device to be held near portrait (`PORTRAIT_ROLL_DEG`, with its own exit band), the compass page to be settled, and a *fresh* lift — a posture inherited by swiping from the level page does not count. Read the numbers from `Constants.Ar`; they have been retuned and this file is the last place that gets updated. The gate takes an injectable `nowMs: () -> Long` so it unit-tests with no Android framework — see `ArTriggerGateTest`, which includes the 45°-oscillation regression test. Auto-entry is user-toggleable (`Constants.Prefs.KEY_AR_AUTO`, default on); when off, `isUpright` is held false entirely. The old bare 45° threshold fired at the angle people naturally hold a phone, so the camera flickered on and off continuously. `MainScreen` keeps an `arModeManual: Boolean?` override in **`rememberSaveable`** (`null` = auto) and clears it on the falling edge of `isUpright` **only when it was set to `false`** — clearing a forced-*on* override too meant an incidental `false→true→false` blip threw the user out of an AR view they had opened deliberately. `CompassScreen` Crossfades between `CompassFlatContent` and `ArOverlayScreen` in 300 ms.
 
 **Two azimuths, deliberately** — pass `azimuth` (deadbanded) for the numeric HUD and `arAzimuth` (α=0.05 second-stage, shortest-arc blend) for label *positions* only. Feeding the HUD from the heavy filter made the AR readout lag ~400ms behind the flat screen's readout for the same heading.
 

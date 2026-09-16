@@ -4,7 +4,6 @@ import android.Manifest
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -100,6 +99,7 @@ import kotlin.math.roundToInt
 fun CompassScreen(
     viewModel: CompassViewModel = viewModel(),
     isArMode: Boolean = false,
+    arWarmAllowed: Boolean = false,
     onArModeChange: (Boolean) -> Unit = {},
 ) {
     val c = appColors
@@ -149,6 +149,7 @@ fun CompassScreen(
         CompassContent(
             viewModel         = viewModel,
             isArMode          = isArMode,
+            arWarmAllowed     = arWarmAllowed,
             onArModeChange    = onArModeChange,
             locationGranted   = locationGranted,
             onRequestLocation = {
@@ -176,20 +177,20 @@ fun CompassScreen(
 private fun CompassContent(
     viewModel: CompassViewModel,
     isArMode: Boolean,
+    arWarmAllowed: Boolean,
     onArModeChange: (Boolean) -> Unit,
     locationGranted: Boolean,
     onRequestLocation: () -> Unit,
 ) {
     val azimuth        by viewModel.azimuth.collectAsStateWithLifecycle()
     val arAzimuth      by viewModel.arAzimuth.collectAsStateWithLifecycle()
-    val cameraElev     by viewModel.arCameraElevation.collectAsStateWithLifecycle()
+    val horizonElev    by viewModel.arHorizonElevation.collectAsStateWithLifecycle()
     val trueNorth      by viewModel.trueNorth.collectAsStateWithLifecycle()
     val declination    by viewModel.declination.collectAsStateWithLifecycle()
     val hasDeclination by viewModel.hasDeclination.collectAsStateWithLifecycle()
     val accuracy       by viewModel.accuracy.collectAsStateWithLifecycle()
     val themeMode      by viewModel.themeMode.collectAsStateWithLifecycle()
     val arAutoSwitch   by viewModel.arAutoSwitch.collectAsStateWithLifecycle()
-    val arArming       by viewModel.arArming.collectAsStateWithLifecycle()
     val hasMagnetometer by viewModel.hasMagnetometer.collectAsStateWithLifecycle()
     val lockedBearing  by viewModel.lockedBearing.collectAsStateWithLifecycle()
 
@@ -212,23 +213,17 @@ private fun CompassContent(
     // point of not being creepy, and it is only spent when the user has already
     // raised the phone past the AR threshold — i.e. when they are on their way
     // into the camera view regardless.
-    // Debounced, NOT raw. `arArming` goes true on a single sample above 65 deg
-    // and false on a single sample below it, so a hand hovering at the
-    // threshold flips it at the sensor rate — which would compose and dispose
-    // the camera bind over and over, strobing the platform's privacy
-    // indicator. Require the lift to persist before opening anything, and keep
-    // it open briefly through a dip so ordinary noise does not tear it down.
-    val armingRequested = arArming && arAutoSwitch
-    var warmingCamera by remember { mutableStateOf(false) }
-    LaunchedEffect(armingRequested) {
-        if (armingRequested) {
-            delay(Constants.Ar.WARM_DEBOUNCE_MS)
-            warmingCamera = true
-        } else {
-            delay(Constants.Ar.WARM_RELEASE_MS)
-            warmingCamera = false
-        }
-    }
+    // Debounced in the ViewModel by CameraWarmGate, not here. `arArming` flips
+    // at the sensor rate for a hand hovering at the threshold, and wiring that
+    // straight to a camera bind strobes the hardware and the privacy
+    // indicator. This composable only reads the decision.
+    // Scoped by the caller: CompassScreen composes during a swipe from the
+    // level page, and cameraWarm is derived from tilt alone. Left ungated, the
+    // camera bound (and the privacy indicator lit) while the flat compass was
+    // on screen — the same stale-intent-across-a-page-change the AR arming
+    // guard exists to stop, one layer further down.
+    val warmingCamera = arWarmAllowed &&
+        viewModel.cameraWarm.collectAsStateWithLifecycle().value
 
     // Sits outside the Crossfade: a Dialog is an overlay and must not be torn
     // down and rebuilt when the AR/flat transition runs.
@@ -289,7 +284,7 @@ private fun CompassContent(
     val arVisible = isArMode && arStreaming
     val arAlpha by animateFloatAsState(
         targetValue = if (arVisible) 1f else 0f,
-        animationSpec = tween(durationMillis = Constants.Ui.MODE_TRANSITION_MS),
+        animationSpec = chromeSpec(Constants.Ui.MODE_TRANSITION_MS),
         label = "arFade",
     )
 
@@ -305,7 +300,7 @@ private fun CompassContent(
                 // Heavy-filtered (α=0.05) — label positions only, where the extra
                 // smoothing is worth the lag.
                 arAzimuth          = arAzimuth,
-                cameraElevationDeg = cameraElev,
+                horizonElevationDeg = horizonElev,
                 lockedBearing      = lockedBearing,
                 onToggleLock       = viewModel::toggleBearingLock,
                 onExitAr           = { onArModeChange(false) },
@@ -760,7 +755,7 @@ private fun HeadingReadout(
         lockedBearing?.let { lastLocked = it }
         val lineAlpha by animateFloatAsState(
             targetValue = if (lockedBearing != null) 1f else 0f,
-            animationSpec = tween(durationMillis = Constants.Ui.LOCK_FADE_MS),
+            animationSpec = chromeSpec(Constants.Ui.LOCK_FADE_MS),
             label = "lockLineFade",
         )
 

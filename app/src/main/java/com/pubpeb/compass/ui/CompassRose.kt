@@ -1,10 +1,7 @@
 package com.pubpeb.compass.ui
 
 import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -96,19 +93,11 @@ fun CompassRose(
     //
     // The accumulator and its derivation now live in rememberContinuousAngle.
     val continuousAngle = rememberContinuousAngle(azimuth)
-    val reduceMotion = rememberReduceMotion()
 
     // NoBouncy, not MediumBouncy: a liquid-damped compass card settles, it does
     // not oscillate. The overshoot also made the card visibly disagree with the
     // un-animated degree readout above it every time the phone stopped turning.
-    val rotationSpec: AnimationSpec<Float> = if (reduceMotion) {
-        snap()
-    } else {
-        spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness    = Spring.StiffnessMedium,
-        )
-    }
+    val rotationSpec: AnimationSpec<Float> = roseSpec()
 
     val animatedAngle by animateFloatAsState(
         targetValue   = continuousAngle,
@@ -122,7 +111,7 @@ fun CompassRose(
     lockedBearing?.let { lastLockedBearing = it }
     val markerAlpha by animateFloatAsState(
         targetValue = if (lockedBearing != null) 1f else 0f,
-        animationSpec = tween(durationMillis = Constants.Ui.LOCK_FADE_MS),
+        animationSpec = chromeSpec(Constants.Ui.LOCK_FADE_MS),
         label = "lockMarkerFade",
     )
 

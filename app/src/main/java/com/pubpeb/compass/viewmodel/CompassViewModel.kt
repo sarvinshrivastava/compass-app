@@ -8,6 +8,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pubpeb.compass.Constants
 import com.pubpeb.compass.sensor.ArTriggerGate
+import com.pubpeb.compass.sensor.CameraWarmGate
+import com.pubpeb.compass.sensor.HorizonCommitGate
 import com.pubpeb.compass.sensor.CompassAccuracy
 import com.pubpeb.compass.sensor.CompassSensorData
 import com.pubpeb.compass.sensor.DeclinationRepository
@@ -19,18 +21,14 @@ import com.pubpeb.compass.ui.theme.ThemeMode
 import com.pubpeb.compass.util.adaptiveLowPass
 import com.pubpeb.compass.util.shortestArcDelta
 import com.pubpeb.compass.util.shouldPublishHeading
-import java.io.File
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * Holds compass state and bridges [SensorRepository] → Compose UI.
@@ -101,8 +99,10 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
      * this value is checked against the camera image behind it: see
      * [Constants.Ar.ELEVATION_SLOW_ALPHA].
      */
+    // Internal: the AR overlay reads [arHorizonElevation], which is this value
+    // after HorizonCommitGate has decided the horizon may move. Published
+    // separately once; that left two elevation flows where AD-1 allows one.
     private val _arCameraElevation = MutableStateFlow(0f)
-    val arCameraElevation: StateFlow<Float> = _arCameraElevation.asStateFlow()
 
     /**
      * Rotation about the device's viewing axis, degrees [-180, +180], 0 = plumb.
@@ -200,6 +200,22 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val isUpright: StateFlow<Boolean> = _isUpright.asStateFlow()
 
     /**
+     * False until the first sensor sample has been processed.
+     *
+     * [isUpright] starts false because there is nothing else it could start as,
+     * and the hardware only starts when the UI subscribes — which happens after
+     * the first composition. So for the opening frames "not upright" means
+     * "not known yet", and anything treating those two as the same thing is
+     * wrong: the AR arming rule did, and consequently a cold start with the
+     * phone already raised dropped the user straight into the camera.
+     *
+     * Set last in [onSensorData], so a reader that recomposes on this flip sees
+     * every other value already settled.
+     */
+    private val _sensorReady = MutableStateFlow(false)
+    val sensorReady: StateFlow<Boolean> = _sensorReady.asStateFlow()
+
+    /**
      * True while AR entry is pending its dwell — the phone is up but the gate
      * has not opened yet.
      *
@@ -208,8 +224,26 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
      * alone and falls back the moment the phone dips, and it must never open
      * the camera. See [ArTriggerGate.isArming].
      */
+    // Internal: its only consumer is [cameraWarmGate], which debounces it into
+    // [cameraWarm]. Exposing the raw signal invites exactly the undebounced use
+    // its own KDoc forbids.
     private val _arArming = MutableStateFlow(false)
-    val arArming: StateFlow<Boolean> = _arArming.asStateFlow()
+
+    /**
+     * Whether the camera may be opened ahead of AR engaging — the debounced
+     * form of [arArming], which flips at the sensor rate for a hand hovering
+     * near the threshold. See [CameraWarmGate].
+     */
+    private val _cameraWarm = MutableStateFlow(false)
+    val cameraWarm: StateFlow<Boolean> = _cameraWarm.asStateFlow()
+
+    /**
+     * Elevation the AR horizon rule is drawn at — committed, not live, so the
+     * rule holds still until the device is genuinely re-aimed. See
+     * [HorizonCommitGate].
+     */
+    private val _arHorizonElevation = MutableStateFlow(0f)
+    val arHorizonElevation: StateFlow<Float> = _arHorizonElevation.asStateFlow()
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
@@ -228,6 +262,10 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     private val arGate = ArTriggerGate(nowMs = SystemClock::elapsedRealtime)
 
     private val levelGate = LevelPostureGate()
+
+    private val horizonGate = HorizonCommitGate(nowMs = SystemClock::elapsedRealtime)
+
+    private val cameraWarmGate = CameraWarmGate(nowMs = SystemClock::elapsedRealtime)
 
     /** Elapsed-realtime millis of the most recent sensor emission. */
     @Volatile private var lastEmissionAt = 0L
@@ -363,11 +401,14 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             // Drop out of any auto-engaged session immediately; a manual override
             // in the UI is unaffected because it does not read isUpright.
             arGate.reset()
+            cameraWarmGate.reset()
+            horizonGate.reset()
             _isUpright.value = false
             // Otherwise a phone already raised when the switch is turned off
-            // leaves this latched true, and the UI keeps warming a camera
-            // provider for an entry that can no longer happen.
+            // leaves these latched true, and the camera stays open for an entry
+            // that can no longer happen.
             _arArming.value = false
+            _cameraWarm.value = false
         }
     }
 
@@ -453,7 +494,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             fastAlpha     = Constants.Ar.ELEVATION_FAST_ALPHA,
             fastThreshold = Constants.Ar.ELEVATION_FAST_THRESHOLD_DEG,
         )
-        _arCameraElevation.value = arElevationFiltered
+        _arCameraElevation.value = arElevationFiltered  // kept for the gate below
 
         _screenRoll.value = data.screenRollDeg
         _levelPosture.value = levelGate.update(data.tiltFromFlatDeg)
@@ -461,9 +502,21 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         publishAccuracy(data.accuracy)
 
         _isUpright.value =
-            if (_arAutoSwitch.value) arGate.update(data.tiltFromFlatDeg) else false
+            if (_arAutoSwitch.value) {
+                arGate.update(data.tiltFromFlatDeg, data.screenRollDeg)
+            } else {
+                false
+            }
         // Read after update(), so it reflects this sample rather than the last.
         _arArming.value = _arAutoSwitch.value && arGate.isArming
+        _cameraWarm.value = cameraWarmGate.update(_arArming.value)
+
+        // Last, deliberately — see the KDoc.
+        _sensorReady.value = true
+
+        // Fed the SMOOTHED elevation: the gate decides when the horizon may
+        // move, the filter decides how it gets there.
+        _arHorizonElevation.value = horizonGate.update(arElevationFiltered)
     }
 
     /** Publishes accuracy and logs only the transitions, not every event. */

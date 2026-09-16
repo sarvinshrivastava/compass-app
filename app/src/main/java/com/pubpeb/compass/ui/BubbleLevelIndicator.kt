@@ -1,11 +1,6 @@
 package com.pubpeb.compass.ui
 
-import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,8 +77,6 @@ fun BubbleLevelIndicator(
     val colors   = appColors
     val haptics  = LocalHapticFeedback.current
 
-    // A user who turned motion off should get a bubble that jumps, not glides.
-    val motionDisabled = rememberReduceMotion()
 
     // ── Normalise tilt to [-1, 1] ─────────────────────────────────────────────
     var normX = (-rollDegrees  / Constants.Level.MAX_TILT_DEG).coerceIn(-1f, 1f)
@@ -100,12 +93,7 @@ fun BubbleLevelIndicator(
     // Critically damped, like the fluid in a real spirit level: it glides and
     // stops. Overshoot would signal "level" on the way past and again on the
     // way back, holding neither.
-    val bubbleSpec: AnimationSpec<Float> =
-        if (motionDisabled) snap()
-        else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness    = Spring.StiffnessMediumLow,
-        )
+    val bubbleSpec = instrumentSpec()
 
     val animNormX by animateFloatAsState(
         targetValue   = normX,
@@ -137,7 +125,7 @@ fun BubbleLevelIndicator(
 
     val ringFillAlpha by animateFloatAsState(
         targetValue   = if (isLevel) Constants.Level.RING_FILL_ALPHA else 0f,
-        animationSpec = if (motionDisabled) snap() else tween(durationMillis = 180),
+        animationSpec = chromeSpec(Constants.Ui.INSTRUMENT_FILL_MS),
         label         = "levelRingFill",
     )
 

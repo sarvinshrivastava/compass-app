@@ -1,11 +1,6 @@
 package com.pubpeb.compass.ui
 
-import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,19 +54,13 @@ fun PlumbLevelIndicator(
 ) {
     val colors = appColors
     val haptics = LocalHapticFeedback.current
-    val motionDisabled = rememberReduceMotion()
 
     // Fold to the nearest quarter turn: held upside down or on its side, the
     // phone is still being asked the same question about the same edge, so the
     // instrument should answer it rather than read ±180 off.
     val folded = foldToQuarterTurn(rollDegrees)
 
-    val spec: AnimationSpec<Float> =
-        if (motionDisabled) snap()
-        else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        )
+    val spec = instrumentSpec()
 
     val animRoll by animateFloatAsState(
         targetValue = folded,
@@ -95,7 +84,7 @@ fun PlumbLevelIndicator(
 
     val referenceAlpha by animateFloatAsState(
         targetValue = if (isLevel) Constants.Level.RING_FILL_ALPHA else 0.35f,
-        animationSpec = if (motionDisabled) snap() else tween(durationMillis = 180),
+        animationSpec = chromeSpec(Constants.Ui.INSTRUMENT_FILL_MS),
         label = "plumbReference",
     )
 

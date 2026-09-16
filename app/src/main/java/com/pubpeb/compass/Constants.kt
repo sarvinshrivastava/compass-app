@@ -72,13 +72,53 @@ object Constants {
      * The [ENTER_DEG] / [EXIT_DEG] gap is a hysteresis band and the whole point
      * of the design: a single 45° threshold fired at the angle people naturally
      * hold a phone, so the camera flickered on and off continuously.
+     *
+     * ### These were relaxed once, deliberately
+     * Entry was 65° with an 800 ms dwell. Those numbers were set when the dwell
+     * was the *only* thing standing between a noisy tilt reading and an
+     * unwanted camera. Three independent defences have since been added — the
+     * device must be held near portrait, AR is scoped to the compass page, and
+     * auto-entry needs a fresh lift rather than an inherited posture — so the
+     * dwell no longer has to be conservative on its own, and 65° was asking for
+     * a deliberately steep raise that the other guards already imply.
+     *
+     * **The floor is 45°**, not a matter of taste: that is the angle people
+     * hold a phone at while walking and glancing, and anything at or below it
+     * fires continuously. `ArTriggerGateTest` pins that with an oscillation
+     * case; entry must stay comfortably above it.
      */
     object Ar {
         /** Tilt from flat above which AR may engage. */
-        const val ENTER_DEG = 65f
+        const val ENTER_DEG = 58f
 
-        /** Tilt below which AR disengages. The 15° gap is the hysteresis band. */
-        const val EXIT_DEG = 50f
+        /**
+         * How far the device may be rolled from upright-portrait and still
+         * count as portrait for AR.
+         *
+         * Tilt alone is not intent. Lying on your side in bed holding the phone
+         * rolled toward landscape produces the same tilt-from-flat as raising
+         * it to sight a horizon, and opening the camera there is startling and
+         * useless — you are not looking at a scene, you are looking at a phone.
+         *
+         * Measured on the folded roll, so upside-down portrait still counts;
+         * 45° is the natural midpoint between portrait and landscape.
+         */
+        const val PORTRAIT_ROLL_DEG = 45f
+
+        /**
+         * Roll past which AR *disengages*, once engaged.
+         *
+         * The 10° gap is a hysteresis band, for the same reason
+         * [ENTER_DEG]/[EXIT_DEG] have one: a bare edge chatters for any hand
+         * held near it. Without this, a phone rolled around 45° flipped the
+         * portrait test on every sample, and because leaving the band also
+         * cleared the dwell and the peak, the user could hold a steady lift
+         * indefinitely and never accumulate enough of either to engage.
+         */
+        const val PORTRAIT_ROLL_EXIT_DEG = 55f
+
+        /** Tilt below which AR disengages. The 13° gap is the hysteresis band. */
+        const val EXIT_DEG = 45f
 
         /**
          * How long tilt must stay above [ENTER_DEG] before AR engages, when the
@@ -86,7 +126,7 @@ object Constants {
          *
          * This is the *maximum* dwell — see [DWELL_MIN_MS] and [DECISIVE_DEG].
          */
-        const val DWELL_MS = 800L
+        const val DWELL_MS = 450L
 
         /**
          * Dwell for an unmistakably deliberate lift.
@@ -94,10 +134,10 @@ object Constants {
          * The dwell exists to reject a hand hovering near [ENTER_DEG], not to
          * make everyone wait. Someone who raises the phone to eye level to look
          * at a horizon has already declared their intent by how far they moved
-         * it, and charging them the full 800 ms is what made entry feel a
+         * it, and charging them the full dwell is what made entry feel a
          * second slower than exit.
          */
-        const val DWELL_MIN_MS = 250L
+        const val DWELL_MIN_MS = 200L
 
         /**
          * Tilt at or beyond which a lift counts as fully decisive, so the dwell
@@ -108,7 +148,7 @@ object Constants {
          * current one: a quick decisive raise that settles back to 70° is still
          * a decisive raise.
          */
-        const val DECISIVE_DEG = 82f
+        const val DECISIVE_DEG = 75f
 
         /**
          * How long a lift must persist before the camera is pre-opened, and how
@@ -265,9 +305,6 @@ object Constants {
 
     /** Shared UI timings and layout. */
     object Ui {
-        /** Page count of the root pager: compass, level. */
-        const val PAGE_COUNT = 2
-
         /** Crossfade between the flat compass and the AR overlay. */
         const val MODE_TRANSITION_MS = 300
 
@@ -289,6 +326,15 @@ object Constants {
 
         /** Fade for the pager dots when AR takes over. */
         const val CHROME_FADE_MS = 200
+
+        /** Target ring / reference line filling on arrival at level. */
+        const val INSTRUMENT_FILL_MS = 180
+
+        /** Pager dot tinting as the active page changes. */
+        const val PAGER_DOT_MS = 250
+
+        /** One full pass of the calibration figure-eight. */
+        const val FIGURE_EIGHT_MS = 2_600
 
         /**
          * How long the heading must stay untrustworthy before the calibration
@@ -349,9 +395,6 @@ object Constants {
         /** Bearing the user has locked, in degrees, or -1 for none. */
         const val KEY_LOCKED_BEARING = "locked_bearing_deg"
 
-        /** One-shot marker for the removal of the old widget's DataStore file. */
-        const val KEY_LEGACY_STORE_PURGED = "legacy_widget_store_purged"
-
         /**
          * Prefix for the "this permission has been requested at least once"
          * markers. The full permission name is appended, so one key per
@@ -360,11 +403,4 @@ object Constants {
         const val KEY_ASKED_PREFIX = "permission_asked_"
     }
 
-    /**
-     * Left behind on any device that ran the widget-with-live-data build.
-     * Nothing reads it; it is deleted once on first launch of this version.
-     */
-    object Legacy {
-        const val WIDGET_DATASTORE_FILE = "datastore/compass_widget_prefs.preferences_pb"
-    }
 }

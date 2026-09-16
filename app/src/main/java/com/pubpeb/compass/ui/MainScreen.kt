@@ -2,7 +2,6 @@ package com.pubpeb.compass.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -33,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.view.WindowManager
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,7 +62,7 @@ import com.pubpeb.compass.viewmodel.CompassViewModel
 @Composable
 fun MainScreen(viewModel: CompassViewModel) {
     val colors     = appColors
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { Constants.Ui.PAGE_COUNT })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { Page.COUNT })
 
     // ── Sensor lifetime ──────────────────────────────────────────────────────
     // The hardware runs only while this screen is STARTED. Collecting on
@@ -79,7 +79,14 @@ fun MainScreen(viewModel: CompassViewModel) {
     // Each answers one question: does this page earn its place, and is the
     // auto-trigger wanted or does everyone reach for the button?
     LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage == 1) viewModel.onLevelOpened()
+        // Exhaustive over Page: a new entry fails to compile until someone
+        // decides whether it reports an open. That is the point — this used to
+        // be `currentPage == 1`, so inserting a page ahead of the level would
+        // have silently re-pointed the counter at the new screen.
+        when (Page.at(pagerState.currentPage)) {
+            Page.LEVEL -> viewModel.onLevelOpened()
+            Page.COMPASS -> Unit
+        }
     }
 
     // ── Keep the screen awake, but only where it earns it ────────────────────
@@ -95,10 +102,27 @@ fun MainScreen(viewModel: CompassViewModel) {
     // the risk was an abandoned foreground session, and that is exactly what
     // DisposableEffect cleans up.
     val context = LocalContext.current
+
     // settledPage, not currentPage: currentPage tracks the page nearest the snap
     // position DURING a drag, so dragging back and forth across the boundary
     // toggled the window flag on every frame of the gesture.
-    val keepAwake = pagerState.settledPage == 0
+    val settledPage = Page.at(pagerState.settledPage)
+    val keepAwake = settledPage.keepScreenOn
+    // ── Orientation is a property of the page ────────────────────────────────
+    // The compass pins portrait; the level rotates freely because rotating the
+    // device IS the interaction there. `configChanges` in the manifest absorbs
+    // the switch, so this costs no Activity recreation.
+    //
+    // settledPage, not currentPage: mid-drag the pager reports whichever page
+    // is nearest, so keying on it would fire setRequestedOrientation on every
+    // frame of a swipe.
+    LaunchedEffect(settledPage) {
+        (context as? Activity)?.requestedOrientation = if (settledPage.lockPortrait) {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
     DisposableEffect(keepAwake) {
         val window = (context as? Activity)?.window
         if (keepAwake) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -107,15 +131,66 @@ fun MainScreen(viewModel: CompassViewModel) {
 
     // ── AR mode state — owned here so the pager can disable swipe during AR ──
     // null = auto (driven by the sensor), true = forced on, false = forced off.
-    // rememberSaveable, not remember: the manifest declares no configChanges,
-    // so a rotation recreates the Activity and a plain remember would silently
-    // discard a deliberate choice — exit AR, rotate, and it snapped back on.
+    // rememberSaveable, not remember: the manifest now absorbs orientation via
+    // configChanges, but it does NOT absorb uiMode, fontScale, locale or
+    // density, and process death is always possible — any of those would
+    // silently discard a deliberate choice.
     var arModeManual by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    // isUpright already carries the ViewModel's hysteresis (enter > 65°, exit
-    // < 50°, 800 ms dwell) and is held false entirely when the user has turned
-    // auto-switching off, so it needs no further debouncing here.
+    // isUpright already carries the ViewModel's hysteresis on tilt and on roll
+    // (see Constants.Ar) and is held false entirely when the user has turned
+    // auto-switching off, so it needs no further debouncing here. Deliberately
+    // does not restate the numbers — they have been retuned once already and a
+    // comment is the last place that gets updated.
     val isUpright by viewModel.isUpright.collectAsStateWithLifecycle()
-    val isArMode = arModeManual ?: isUpright
+    val sensorReady by viewModel.sensorReady.collectAsStateWithLifecycle()
+
+    // ── AR belongs to the compass page, and only to it ───────────────────────
+    // isUpright is derived from tilt alone and knows nothing about paging, so
+    // without this it went true on the LEVEL page too — where AR never renders,
+    // because ArOverlayScreen lives inside CompassScreen. The visible effect
+    // was worse than a stray camera: `userScrollEnabled = !isArMode` disabled
+    // the pager and the dots faded out, so raising the phone while on the level
+    // silently trapped the user there with no affordance left to get back.
+    val onCompassPage = settledPage == Page.COMPASS
+
+    // ── Auto-entry needs a FRESH lift, not an inherited posture ──────────────
+    // Reading the level upright already holds the phone past the AR threshold,
+    // so swiping from there to the compass used to drop the user straight into
+    // the camera the instant the page settled. The gate was true, but it was
+    // true *about the level* — stale intent, carried across a page change.
+    //
+    // Arriving already upright therefore disarms auto-entry until the phone
+    // comes back down. Lowering it re-arms, so the next deliberate raise works
+    // exactly as before, and the camera button is unaffected either way.
+    // The ARRIVAL half is resolved during composition, not in an effect. A
+    // LaunchedEffect runs after the frame it was composed in, which left one
+    // frame where the page had already changed but the arming decision had
+    // not — isArMode went true, the pager dropped its safeDrawing padding and
+    // the dots faded, and the whole screen reflowed and snapped back. The
+    // camera never opened; the layout blinked anyway.
+    //
+    // remember(settledPage) re-evaluates the instant the page settles, in the
+    // same composition, so the decision is never one frame late.
+    // Keyed on sensorReady as well as the page, so the snapshot is taken from a
+    // real reading rather than from isUpright's placeholder false. On a cold
+    // start the hardware only begins after the first composition, so without
+    // this the arrival always looked flat — and launching the app while already
+    // holding the phone up went straight into the camera, which is precisely
+    // what this rule exists to stop on the other path in.
+    val uprightOnArrival = remember(settledPage, sensorReady) { sensorReady && isUpright }
+    var loweredSinceArrival by remember(settledPage, sensorReady) { mutableStateOf(false) }
+    LaunchedEffect(settledPage, isUpright, sensorReady) {
+        if (sensorReady && !isUpright) loweredSinceArrival = true
+    }
+
+    // Derived, never written during composition: arriving flat arms immediately,
+    // arriving already-upright waits for the phone to come down once. The
+    // re-arming half below IS an effect, but a late re-arm only ever delays
+    // granting AR by a frame — it cannot cause the reflow the arrival half had
+    // to avoid.
+    val autoEntryArmed = !uprightOnArrival || loweredSinceArrival
+
+    val isArMode = onCompassPage && (arModeManual ?: (isUpright && autoEntryArmed))
 
     // Re-arm auto-entry once the phone has been lowered, so that tapping
     // "exit AR" while still holding it up does not let auto-entry fire again on
@@ -126,6 +201,7 @@ fun MainScreen(viewModel: CompassViewModel) {
     // flat got thrown out of it by any incidental false→true→false blip in
     // isUpright — a hand tremor was enough. A forced-on override is the user
     // overriding the posture, so posture must not revoke it.
+    //
     LaunchedEffect(isUpright) {
         if (!isUpright && arModeManual == false) arModeManual = null
     }
@@ -155,21 +231,23 @@ fun MainScreen(viewModel: CompassViewModel) {
                     else Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
                 ),
         ) { page ->
-            when (page) {
-                0 -> CompassScreen(
+            when (Page.at(page)) {
+                Page.COMPASS -> CompassScreen(
                     viewModel      = viewModel,
                     isArMode       = isArMode,
+                    // Pre-opening the camera is only ever appropriate once the
+                    // compass page is settled AND auto-entry is actually armed.
+                    arWarmAllowed  = onCompassPage && autoEntryArmed,
                     onArModeChange = { arModeManual = it },
                 )
-                1 -> TiltScreen(viewModel = viewModel)
-                else -> Unit
+                Page.LEVEL -> TiltScreen(viewModel = viewModel)
             }
         }
 
         AnimatedVisibility(
             visible = !isArMode,
-            enter   = fadeIn(tween(durationMillis = 200)),
-            exit    = fadeOut(tween(durationMillis = 200)),
+            enter   = fadeIn(chromeSpec(Constants.Ui.CHROME_FADE_MS)),
+            exit    = fadeOut(chromeSpec(Constants.Ui.CHROME_FADE_MS)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
@@ -195,11 +273,11 @@ private fun PagerDots(currentPage: Int, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        repeat(Constants.Ui.PAGE_COUNT) { index ->
+        repeat(Page.COUNT) { index ->
             val tint by animateColorAsState(
                 targetValue = if (index == currentPage) colors.pagerDotActive
                               else colors.pagerDotIdle,
-                animationSpec = tween(durationMillis = 250),
+                animationSpec = chromeSpec(Constants.Ui.PAGER_DOT_MS),
                 label = "pagerDot$index",
             )
             Box(

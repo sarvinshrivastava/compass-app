@@ -1,12 +1,14 @@
 package com.pubpeb.compass.ui
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -28,6 +30,26 @@ import com.pubpeb.compass.ui.theme.appColors
 import com.pubpeb.compass.viewmodel.CompassViewModel
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+/**
+ * The instrument occupies this box in both postures, so neither can move it.
+ *
+ * A maximum, not a fixed size: this page deliberately does NOT pin portrait
+ * (see [Page.lockPortrait]), and in landscape a phone offers roughly 360 dp of
+ * usable height against the 408 dp this column wants. Sized from the measured
+ * viewport, the instrument shrinks instead of clipping.
+ */
+private val INSTRUMENT_MAX_SIZE = 260.dp
+
+/**
+ * Reserved height for the readout beneath the instrument.
+ *
+ * A floor, not a fixed height. It clears a 10 sp label plus a 20 sp value at
+ * normal font scale, and both postures reserve it identically so neither can
+ * shift the other — but `sp` grows with the user's font-size setting while
+ * `dp` does not, so a hard height would clip the value at large scales.
+ */
+private val READOUT_MIN_HEIGHT = 52.dp
 
 /**
  * Full-screen tilt/levelling screen (page 1 in the pager).
@@ -80,23 +102,52 @@ fun TiltScreen(
             return@Column
         }
 
+        // ── Both postures occupy exactly the same box ─────────────────────
+        // Crossfade is a Box sized to its largest child, and this sits in a
+        // Column arranged Center — so ANY height difference between the two
+        // branches moves the instrument when the outgoing one leaves
+        // composition. The branches happened to be close, which is worse than
+        // being obviously different: the bar settled, then hopped.
+        //
+        // Reserving both slots makes the two branches provably identical, so
+        // there is nothing left that can shift. Same reason the turn-guidance
+        // line on the compass screen holds its height whether or not it has
+        // anything to say.
+        BoxWithConstraints {
+        val instrument = minOf(INSTRUMENT_MAX_SIZE, maxHeight - 96.dp, maxWidth)
+
         Crossfade(
             targetState = posture,
-            animationSpec = tween(durationMillis = Constants.Ui.MODE_TRANSITION_MS),
+            animationSpec = chromeSpec(Constants.Ui.MODE_TRANSITION_MS),
             label = "levelPosture",
         ) { active ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                when (active) {
-                    LevelPosture.FLAT -> {
-                        BubbleLevelIndicator(
+                Box(
+                    modifier = Modifier.size(instrument),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when (active) {
+                        LevelPosture.FLAT -> BubbleLevelIndicator(
                             pitchDegrees = pitch,
                             rollDegrees = roll,
-                            modifier = Modifier.size(260.dp),
+                            modifier = Modifier.fillMaxSize(),
                         )
 
-                        Spacer(modifier = Modifier.height(32.dp))
+                        LevelPosture.UPRIGHT -> PlumbLevelIndicator(
+                            rollDegrees = screenRoll,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
 
-                        Row(
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Box(
+                    modifier = Modifier.heightIn(min = READOUT_MIN_HEIGHT),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when (active) {
+                        LevelPosture.FLAT -> Row(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -104,23 +155,15 @@ fun TiltScreen(
                             Spacer(modifier = Modifier.width(48.dp))
                             AxisReadout(label = "ROLL", value = roll)
                         }
-                    }
 
-                    LevelPosture.UPRIGHT -> {
-                        PlumbLevelIndicator(
-                            rollDegrees = screenRoll,
-                            modifier = Modifier.size(260.dp),
-                        )
-
-                        Spacer(modifier = Modifier.height(32.dp))
-
-                        AxisReadout(
+                        LevelPosture.UPRIGHT -> AxisReadout(
                             label = "OFF PLUMB",
                             value = abs(foldToQuarterTurn(screenRoll)),
                         )
                     }
                 }
             }
+        }
         }
     }
 }

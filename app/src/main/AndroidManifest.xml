@@ -86,8 +86,27 @@
             registration per tap, with duplicate back-stack entries the user had
             to press through. singleTop resumes the existing instance instead.
         -->
+        <!--
+            Orientation is decided per page, not here — see `ui/Page.kt`.
+
+            The compass pins portrait: its rose is a circle capped on width
+            under a 52 sp readout, so landscape only takes away the dimension
+            the layout is built around. The level does not pin, because it
+            measures how the device is held — freezing the UI while the user
+            rotates it reads as the screen having stopped responding.
+
+            `configChanges` is what makes that switch cheap. Without it,
+            setRequestedOrientation recreates the Activity: a blank frame, the
+            camera unbinding and paying its ~500 ms first-frame cost again, and
+            every rememberSaveable round-tripping through save/restore.
+
+            Note this only binds phones. Verified on API 36: a display wider
+            than ~600 dp ignores the request entirely and renders landscape
+            regardless, so large screens still need a real layout.
+                -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">

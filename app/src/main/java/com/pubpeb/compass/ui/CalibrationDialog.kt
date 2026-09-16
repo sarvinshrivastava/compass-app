@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.pubpeb.compass.Constants
 import com.pubpeb.compass.sensor.CompassAccuracy
 import com.pubpeb.compass.ui.theme.AppPalette
 import com.pubpeb.compass.ui.theme.appColors
@@ -253,12 +254,17 @@ private fun FigureEightDiagram(
     val c = appColors
     val reduceMotion = rememberReduceMotion()
 
+    // AD-13 exemption, named: `infiniteRepeatable` needs a
+    // DurationBasedAnimationSpec, which the MotionSpecs helpers do not return.
+    // Reduce-motion is honoured differently here and more strongly — the
+    // travelling dot is not drawn at all, leaving the static path, so there is
+    // no motion to gate in the first place.
     val transition = rememberInfiniteTransition(label = "figure8")
     val t by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            animation = tween(durationMillis = Constants.Ui.FIGURE_EIGHT_MS, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "figure8Phase",
