@@ -289,6 +289,7 @@ here was not what it looked like.
 - for any tilt reading taken while the phone is upright, derive the angle from the gravity vector — never from `getOrientation`'s roll, which is degenerate at exactly that pitch. <sub>(`learnings/level-upright-posture-and-euler-degeneracy.md`)</sub>
 - never branch on `isGranted` + `shouldShowRationale` alone — pair them with the persisted marker in `util/PermissionAskLog.kt`, or the denied-for-good user gets a button that cannot work. <sub>(`learnings/permission-permanent-denial.md`)</sub>
 - the public URL is `https://minimal-compass.vercel.app` — never the `-sarvinshrivastavas-projects.vercel.app` form, which 302s to a Vercel SSO login. <sub>(`learnings/vercel-alias-deployment-protection.md`)</sub>
+- drive any waiting affordance from the in-flight operation itself, cleared in a `finally` — never from the absence of its result. <sub>(`learnings/waiting-states-need-a-terminal-condition.md`)</sub>
 
 ### Reference — read when touching that area
 - `GeomagneticField` still ships WMM-2020, and that is not a bug to fix — `learnings/geomagnetic-field-is-wmm-2020.md`

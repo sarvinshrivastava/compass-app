@@ -131,6 +131,30 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val hasDeclination: StateFlow<Boolean> = _hasDeclination.asStateFlow()
 
     /**
+     * True only while a declination fetch is actually in flight.
+     *
+     * The UI derived "still waiting" from `trueNorth && granted &&
+     * !hasDeclination`, which has no terminal condition: a fetch that times out
+     * or finds no fix leaves every one of those true, so the waiting indicator
+     * it drove ran for the life of the process with nothing behind it. This is
+     * bounded by the fetch — at most [DeclinationRepository.TIMEOUT_MS] — and
+     * cleared in a `finally`, so it ends whichever way the fetch goes.
+     */
+    private val _fetchingDeclination = MutableStateFlow(false)
+    val fetchingDeclination: StateFlow<Boolean> = _fetchingDeclination.asStateFlow()
+
+    /**
+     * The last fetch came back with nothing.
+     *
+     * Failure is not exceptional here — indoors, airplane mode, location
+     * switched off at the system level — but it was silent, and silence after a
+     * deliberate tap reads as the tap having been ignored. Cleared the moment a
+     * retry starts or a declination lands.
+     */
+    private val _declinationFailed = MutableStateFlow(false)
+    val declinationFailed: StateFlow<Boolean> = _declinationFailed.asStateFlow()
+
+    /**
      * Bearing the user has locked, in degrees, or null when none is set.
      *
      * "Hold this direction" is the question a compass is most often actually
@@ -337,8 +361,19 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         sharedSensorData.collect { /* onSensorData does the work upstream */ }
     }
 
-    fun toggleTrueNorth() {
-        val next = !_trueNorth.value
+    /**
+     * Selects the north reference directly.
+     *
+     * Idempotent, and that matters: a toggle cannot express "the user asked for
+     * true north" across a permission round-trip, because by the time the grant
+     * comes back the caller no longer knows which way it would flip. It also
+     * guards the locked-bearing shift below — applying that twice would rotate
+     * the direction the user is following by the declination and leave both
+     * numbers looking plausible.
+     */
+    fun setTrueNorth(enabled: Boolean) {
+        if (_trueNorth.value == enabled) return
+        val next = enabled
         _trueNorth.value = next
         prefs.edit().putBoolean(Constants.Prefs.KEY_TRUE_NORTH, next).apply()
         Log.i(TAG, "trueNorth=$next declination=${_declination.value}")
@@ -425,15 +460,34 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
      * the compass simply stays on magnetic north.
      */
     fun updateDeclination() {
+        // A retry tap while one is already running would stack fetches and, on
+        // the losing one finishing second, re-raise the failure note over a
+        // declination that had just arrived.
+        //
+        // Claimed and set BEFORE the launch, not inside it. Inside, the guard
+        // would only hold because viewModelScope runs on Dispatchers.Main
+        // .immediate and therefore executes synchronously up to the first
+        // suspension — true today, but an invisible dependency for a guard to
+        // rest on. Out here it holds whatever the dispatcher does.
+        if (_fetchingDeclination.value) return
+        _fetchingDeclination.value = true
+        _declinationFailed.value = false
         viewModelScope.launch {
-            val declination = declinationRepo.fetchDeclination()
+            val declination = try {
+                declinationRepo.fetchDeclination()
+            } finally {
+                _fetchingDeclination.value = false
+            }
             Telemetry.onDeclinationOutcome(acquired = declination != null)
-            if (declination == null) return@launch
+            if (declination == null) {
+                _declinationFailed.value = true
+                return@launch
+            }
 
             // A lock taken before the fix landed is in MAGNETIC space, and this
             // assignment is about to move the displayed heading into TRUE
             // space. Shift it on the same edge, for the same reason
-            // toggleTrueNorth does — otherwise the direction the user is
+            // setTrueNorth does — otherwise the direction the user is
             // following silently rotates by the declination the moment GPS
             // answers, and every "N° LEFT/RIGHT" after that is wrong by exactly
             // that much, with both numbers still looking entirely plausible.
@@ -558,7 +612,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
      * [direction] is +1 entering true space, -1 leaving it. A bearing lock is
      * held in *display* space, so anything that changes what 0° means has to
      * move the lock by the same amount the heading moves — there are two such
-     * doors, [toggleTrueNorth] and a declination arriving mid-session, and both
+     * doors, [setTrueNorth] and a declination arriving mid-session, and both
      * must use this.
      */
     private fun shiftLockedBearing(direction: Float) {
