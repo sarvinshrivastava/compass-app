@@ -1,5 +1,7 @@
 # Play release build gotchas
 
+> **Applies to:** `app/src/main/res/layout/widget_preview.xml`
+
 Found while preparing the first Play Store submission (2026-09).
 
 ## `compileSdk = 36` does not break this build

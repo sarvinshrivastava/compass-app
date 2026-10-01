@@ -1,6 +1,7 @@
 # The Vercel project answers on two hostnames and only one of them is public
 
 > **Rule:** the public URL is `https://minimal-compass.vercel.app` — never the `-sarvinshrivastavas-projects.vercel.app` form, which 302s to a Vercel SSO login.
+> **Applies to:** `site/.gitignore`
 
 Found 2026-09-13 deploying the privacy-policy change that Play's Data Safety
 form has to agree with.

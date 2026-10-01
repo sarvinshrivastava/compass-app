@@ -1,6 +1,7 @@
 # "Permanently denied" is not a state Android reports
 
 > **Rule:** never branch on `isGranted` + `shouldShowRationale` alone — pair them with the persisted marker in `util/PermissionAskLog.kt`, or the denied-for-good user gets a button that cannot work.
+> **Applies to:** `app/src/main/java/com/pubpeb/compass/util/PermissionAskLog.kt`
 
 ## The trap
 

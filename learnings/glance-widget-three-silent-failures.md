@@ -1,6 +1,7 @@
 # The Glance widget had three independent ways to show "Can't load widget"
 
 > **Rule:** never `exclude(group = "androidx.work")` from Glance, never put `<Space>` in a RemoteViews layout, and never ship an `<appwidget-provider>` without `android:initialLayout`.
+> **Applies to:** `app/build.gradle.kts`, `app/src/main/java/com/pubpeb/compass/widget/CompassWidget.kt`, `app/src/main/java/com/pubpeb/compass/widget/CompassWidgetReceiver.kt`, `app/src/main/res/xml/compass_appwidget_info.xml`
 
 Found 2026-09-12 while capturing a Play-listing screenshot of the widget on a
 Pixel_9a emulator. All three shipped in the branch and none was visible from

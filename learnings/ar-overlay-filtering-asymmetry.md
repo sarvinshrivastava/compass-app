@@ -1,6 +1,7 @@
 # The AR overlay filtered one axis and not the other
 
 > **Rule:** every value that positions something in the AR overlay gets a second-stage filter — if you add a new one, filter it, and never point `adaptiveLowPass` at a bearing.
+> **Applies to:** `app/src/main/java/com/pubpeb/compass/util/AngleUtil.kt`, `app/src/main/java/com/pubpeb/compass/util/SmoothingUtil.kt`
 
 Found 2026-09-14 from a user report: "the direction tags wiggle too much in the
 vertical direction". Horizontal was fine. That asymmetry was the whole clue.
