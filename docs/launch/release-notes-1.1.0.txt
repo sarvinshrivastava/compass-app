@@ -1,0 +1,7 @@
+New: lock a bearing. Mark a direction and the compass tells you which way to turn, even after a restart.
+
+New: a plumb level. Hold the phone against a door frame or wall to check it is upright.
+
+True north is easier to find, and the app explains why it needs your location before it asks. Calibration now explains itself.
+
+The AR view is steadier and no longer opens when you didn't ask for it. Settings are tidier, with privacy and support links.

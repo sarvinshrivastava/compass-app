@@ -96,3 +96,15 @@ a content-changed event for a `Text` change as well as a description change, and
 merging also replaces the exact degree on focus with the parent's description.
 Two unmerged siblings — degree carries precision, cardinal carries the live
 region — is the shape that works.
+
+## 4. A state tag sized to its current text reflows everything around it
+
+- The Settings Calibrate row showed accuracy as a trailing word. `NOT USABLE`
+  is wider than `POOR`, so each flip rewrapped the `weight(1f)` title to two
+  lines, grew the row, and made the whole dialog jump. Sensor accuracy flips
+  often, so the dialog kept jumping.
+- Fix: the tag reserves the width of its **longest** label with an invisible
+  (`alpha(0f)`, `clearAndSetSemantics {}`) copy in a `Box`, with the live label
+  drawn on top, aligned to the end. Then shorten the title until the reserved
+  width fits on one line.
+- Any trailing slot whose text changes at runtime needs the same treatment.

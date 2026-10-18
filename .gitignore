@@ -120,4 +120,4 @@ iconcheck.png
 # never worth a diff. `_bmad-output/` IS tracked: it holds the architecture
 # spine and its decision memlog, which are authored, not generated.
 _bmad/
-.claude/skills/
+.claude/

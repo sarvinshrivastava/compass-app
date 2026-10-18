@@ -1,9 +1,8 @@
 package com.pubpeb.compass.ui
 
 import android.Manifest
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DarkMode
@@ -46,8 +46,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -60,7 +61,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -118,7 +118,7 @@ fun CompassScreen(
     // value survives process death, this makes a change to it recompose.
     var hasAsked by remember {
         mutableStateOf(
-            PermissionAskLog.hasAsked(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+            PermissionAskLog.hasAsked(context, Manifest.permission.ACCESS_COARSE_LOCATION),
         )
     }
 
@@ -128,16 +128,18 @@ fun CompassScreen(
     // MAG tag called launchPermissionRequest() into a system that silently
     // refuses it: the tag never flipped to TRUE, nothing explained why, and the
     // user concluded true north was broken.
-    val locationBlocked = !locationGranted &&
-        !locationPermission.status.shouldShowRationale &&
-        hasAsked
+    val locationBlocked =
+        !locationGranted &&
+            !locationPermission.status.shouldShowRationale &&
+            hasAsked
 
-    val northAvailability = when {
-        locationGranted -> NorthModeAvailability.GRANTED
-        locationBlocked -> NorthModeAvailability.BLOCKED
-        hasAsked -> NorthModeAvailability.DECLINED
-        else -> NorthModeAvailability.NEVER_ASKED
-    }
+    val northAvailability =
+        when {
+            locationGranted -> NorthModeAvailability.GRANTED
+            locationBlocked -> NorthModeAvailability.BLOCKED
+            hasAsked -> NorthModeAvailability.DECLINED
+            else -> NorthModeAvailability.NEVER_ASKED
+        }
 
     // Only ever fires to fetch declination — never to unblock the UI.
     LaunchedEffect(locationGranted) {
@@ -161,16 +163,16 @@ fun CompassScreen(
         color = c.bgDeep,
     ) {
         CompassContent(
-            viewModel         = viewModel,
-            isArMode          = isArMode,
-            arWarmAllowed     = arWarmAllowed,
-            onArModeChange    = onArModeChange,
-            locationGranted   = locationGranted,
+            viewModel = viewModel,
+            isArMode = isArMode,
+            arWarmAllowed = arWarmAllowed,
+            onArModeChange = onArModeChange,
+            locationGranted = locationGranted,
             northAvailability = northAvailability,
             // Only ever called from the explainer dialog, never straight from a
             // tap: a bare system prompt triggered by three letters nobody has
             // explained is the worst moment to spend the one ask Android grants.
-            onAllowLocation   = {
+            onAllowLocation = {
                 PermissionAskLog.recordAsked(
                     context,
                     Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -178,7 +180,7 @@ fun CompassScreen(
                 hasAsked = true
                 locationPermission.launchPermissionRequest()
             },
-            onOpenSettings    = { context.openAppSettings() },
+            onOpenSettings = { context.openAppSettings() },
         )
     }
 }
@@ -196,17 +198,17 @@ private fun CompassContent(
     onAllowLocation: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val azimuth        by viewModel.azimuth.collectAsStateWithLifecycle()
-    val arAzimuth      by viewModel.arAzimuth.collectAsStateWithLifecycle()
-    val horizonElev    by viewModel.arHorizonElevation.collectAsStateWithLifecycle()
-    val trueNorth      by viewModel.trueNorth.collectAsStateWithLifecycle()
-    val declination    by viewModel.declination.collectAsStateWithLifecycle()
+    val azimuth by viewModel.azimuth.collectAsStateWithLifecycle()
+    val arAzimuth by viewModel.arAzimuth.collectAsStateWithLifecycle()
+    val horizonElev by viewModel.arHorizonElevation.collectAsStateWithLifecycle()
+    val trueNorth by viewModel.trueNorth.collectAsStateWithLifecycle()
+    val declination by viewModel.declination.collectAsStateWithLifecycle()
     val hasDeclination by viewModel.hasDeclination.collectAsStateWithLifecycle()
-    val accuracy       by viewModel.accuracy.collectAsStateWithLifecycle()
-    val themeMode      by viewModel.themeMode.collectAsStateWithLifecycle()
-    val arAutoSwitch   by viewModel.arAutoSwitch.collectAsStateWithLifecycle()
+    val accuracy by viewModel.accuracy.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val arAutoSwitch by viewModel.arAutoSwitch.collectAsStateWithLifecycle()
     val hasMagnetometer by viewModel.hasMagnetometer.collectAsStateWithLifecycle()
-    val lockedBearing  by viewModel.lockedBearing.collectAsStateWithLifecycle()
+    val lockedBearing by viewModel.lockedBearing.collectAsStateWithLifecycle()
 
     // ── Open the camera during the AR dwell, not after it ────────────────────
     // Measured on a Pixel 9a, the AR entry cost breaks down as:
@@ -236,8 +238,9 @@ private fun CompassContent(
     // camera bound (and the privacy indicator lit) while the flat compass was
     // on screen — the same stale-intent-across-a-page-change the AR arming
     // guard exists to stop, one layer further down.
-    val warmingCamera = arWarmAllowed &&
-        viewModel.cameraWarm.collectAsStateWithLifecycle().value
+    val warmingCamera =
+        arWarmAllowed &&
+            viewModel.cameraWarm.collectAsStateWithLifecycle().value
 
     // Sits outside the Crossfade: a Dialog is an overlay and must not be torn
     // down and rebuilt when the AR/flat transition runs.
@@ -290,7 +293,7 @@ private fun CompassContent(
 
     if (showCalibration) {
         CalibrationDialog(
-            accuracy  = accuracy,
+            accuracy = accuracy,
             onDismiss = { showCalibration = false },
         )
     }
@@ -319,8 +322,14 @@ private fun CompassContent(
     if (showNorthDialog) {
         NorthModeDialog(
             state = northAvailability,
-            onAllow = { showNorthDialog = false; onAllowLocation() },
-            onOpenSettings = { showNorthDialog = false; onOpenSettings() },
+            onAllow = {
+                showNorthDialog = false
+                onAllowLocation()
+            },
+            onOpenSettings = {
+                showNorthDialog = false
+                onOpenSettings()
+            },
             onDismiss = {
                 showNorthDialog = false
                 // Declining is an answer. Leaving the request armed would flip
@@ -333,31 +342,31 @@ private fun CompassContent(
 
     if (showSettings) {
         SettingsDialog(
-            northAvailability   = northAvailability,
-            trueNorthActive     = trueNorth && hasDeclination,
-            awaitingNorthFix    = askedForTrue && trueNorth && fetchingFix && !hasDeclination,
-            declination         = declination,
-            accuracy            = accuracy,
-            onSelectMagnetic    = onSelectMagnetic,
+            northAvailability = northAvailability,
+            trueNorthActive = trueNorth && hasDeclination,
+            awaitingNorthFix = askedForTrue && trueNorth && fetchingFix && !hasDeclination,
+            declination = declination,
+            accuracy = accuracy,
+            onSelectMagnetic = onSelectMagnetic,
             // Closes Settings first: reaching true north from here needs the
             // explainer, and two stacked dialogs is one too many. Selecting
             // magnetic, or true when it is already available, changes the mode
             // in place and leaves Settings open — a row that answers on the
             // spot never has to close the screen to do it.
-            onSelectTrue        = {
+            onSelectTrue = {
                 if (northAvailability != NorthModeAvailability.GRANTED) showSettings = false
                 onSelectTrue()
             },
-            arAutoSwitch        = arAutoSwitch,
+            arAutoSwitch = arAutoSwitch,
             onArAutoSwitchChange = viewModel::setArAutoSwitch,
-            onOpenCalibration   = {
+            onOpenCalibration = {
                 showSettings = false
                 showCalibration = true
             },
-            version             = remember(context) { context.appVersionLabel() },
-            onOpenPrivacy       = { context.openUrl(Constants.Links.PRIVACY) },
-            onOpenSupport       = { context.openUrl(Constants.Links.SUPPORT) },
-            onDismiss           = { showSettings = false },
+            version = remember(context) { context.appVersionLabel() },
+            onOpenPrivacy = { context.openUrl(Constants.Links.PRIVACY) },
+            onOpenSupport = { context.openUrl(Constants.Links.SUPPORT) },
+            onDismiss = { showSettings = false },
         )
     }
 
@@ -387,32 +396,33 @@ private fun CompassContent(
             ArOverlayScreen(
                 // Deadbanded heading for the numeric HUD, so the AR readout never
                 // disagrees with the flat screen's readout for the same bearing.
-                azimuth            = azimuth,
+                azimuth = azimuth,
                 // Heavy-filtered (α=0.05) — label positions only, where the extra
                 // smoothing is worth the lag.
-                arAzimuth          = arAzimuth,
+                arAzimuth = arAzimuth,
                 horizonElevationDeg = horizonElev,
-                lockedBearing      = lockedBearing,
-                onToggleLock       = viewModel::toggleBearingLock,
-                onExitAr           = { onArModeChange(false) },
+                lockedBearing = lockedBearing,
+                onToggleLock = viewModel::toggleBearingLock,
+                onExitAr = { onArModeChange(false) },
                 onStreamingChanged = { arStreaming = it },
-                modifier           = Modifier
-                    .fillMaxSize()
-                    .alpha(arAlpha)
-                    .then(if (arVisible) Modifier else Modifier.clearAndSetSemantics {}),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .alpha(arAlpha)
+                        .then(if (arVisible) Modifier else Modifier.clearAndSetSemantics {}),
             )
         }
 
         if (arAlpha < 1f) {
             CompassFlatContent(
-                azimuth           = azimuth,
-                trueNorth         = trueNorth,
-                hasDeclination    = hasDeclination,
-                declination       = declination,
-                accuracy          = accuracy,
-                themeMode         = themeMode,
-                hasMagnetometer   = hasMagnetometer,
-                lockedBearing     = lockedBearing,
+                azimuth = azimuth,
+                trueNorth = trueNorth,
+                hasDeclination = hasDeclination,
+                declination = declination,
+                accuracy = accuracy,
+                themeMode = themeMode,
+                hasMagnetometer = hasMagnetometer,
+                lockedBearing = lockedBearing,
                 northAvailability = northAvailability,
                 // The fetch itself, not "no declination yet" — the old form
                 // stayed true forever once a fetch failed.
@@ -421,18 +431,18 @@ private fun CompassContent(
                 // fall back on. A remembered angle makes true north work on the
                 // first frame, so a refresh running (or failing) behind it is
                 // not the user's problem and must not be reported as one.
-                awaitingNorthFix  = askedForTrue && trueNorth && fetchingFix && !hasDeclination,
-                northFixFailed    = askedForTrue && trueNorth && fixFailed && !hasDeclination,
-                onRetryNorthFix   = viewModel::updateDeclination,
-                onSelectMagnetic  = onSelectMagnetic,
-                onSelectTrue      = onSelectTrue,
-                onToggleLock      = viewModel::toggleBearingLock,
-                onToggleDaylight  = viewModel::toggleDaylightMode,
-                onOpenSettings    = { showSettings = true },
-                onOpenNorthMode   = { showNorthDialog = true },
+                awaitingNorthFix = askedForTrue && trueNorth && fetchingFix && !hasDeclination,
+                northFixFailed = askedForTrue && trueNorth && fixFailed && !hasDeclination,
+                onRetryNorthFix = viewModel::updateDeclination,
+                onSelectMagnetic = onSelectMagnetic,
+                onSelectTrue = onSelectTrue,
+                onToggleLock = viewModel::toggleBearingLock,
+                onToggleDaylight = viewModel::toggleDaylightMode,
+                onOpenSettings = { showSettings = true },
+                onOpenNorthMode = { showNorthDialog = true },
                 onOpenCalibration = { showCalibration = true },
-                onEnterAr         = { onArModeChange(true) },
-                modifier          = Modifier.alpha(1f - arAlpha),
+                onEnterAr = { onArModeChange(true) },
+                modifier = Modifier.alpha(1f - arAlpha),
             )
         }
     }
@@ -467,19 +477,20 @@ private fun CompassFlatContent(
     val c = appColors
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(c.bgDeep)
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(c.bgDeep)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         // ── Top bar: camera + daylight toggle (right-aligned) ─────────────
         TopInfoBar(
-            themeMode        = themeMode,
+            themeMode = themeMode,
             onToggleDaylight = onToggleDaylight,
-            onOpenSettings   = onOpenSettings,
-            onEnterAr        = onEnterAr,
+            onOpenSettings = onOpenSettings,
+            onEnterAr = onEnterAr,
         )
 
         // ── No magnetometer: say so, and stop ─────────────────────────────
@@ -491,8 +502,9 @@ private fun CompassFlatContent(
         if (!hasMagnetometer) {
             MissingSensorNotice(
                 headline = "No compass sensor",
-                detail   = "This device has no magnetometer, so it cannot measure " +
-                    "a heading. The bubble level on the next page still works.",
+                detail =
+                    "This device has no magnetometer, so it cannot measure " +
+                        "a heading. The bubble level on the next page still works.",
                 modifier = Modifier.weight(1f),
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -501,18 +513,18 @@ private fun CompassFlatContent(
 
         // ── Heading readout: the screen's hero, just above the rose ───────
         HeadingReadout(
-            azimuth           = azimuth,
-            trueNorth         = trueNorth,
-            hasDeclination    = hasDeclination,
-            declination       = declination,
-            accuracy          = accuracy,
-            lockedBearing     = lockedBearing,
+            azimuth = azimuth,
+            trueNorth = trueNorth,
+            hasDeclination = hasDeclination,
+            declination = declination,
+            accuracy = accuracy,
+            lockedBearing = lockedBearing,
             northAvailability = northAvailability,
-            awaitingNorthFix  = awaitingNorthFix,
-            northFixFailed    = northFixFailed,
-            onRetryNorthFix   = onRetryNorthFix,
-            onSelectMagnetic  = onSelectMagnetic,
-            onSelectTrue      = onSelectTrue,
+            awaitingNorthFix = awaitingNorthFix,
+            northFixFailed = northFixFailed,
+            onRetryNorthFix = onRetryNorthFix,
+            onSelectMagnetic = onSelectMagnetic,
+            onSelectTrue = onSelectTrue,
             onOpenCalibration = onOpenCalibration,
         )
 
@@ -521,16 +533,17 @@ private fun CompassFlatContent(
         // dominating it, and `weight(fill = false)` bounds its height so a
         // short or landscape viewport shrinks it instead of overflowing.
         Box(
-            modifier           = Modifier.weight(1f, fill = false),
-            contentAlignment   = Alignment.Center,
+            modifier = Modifier.weight(1f, fill = false),
+            contentAlignment = Alignment.Center,
         ) {
             CompassRose(
-                azimuth  = azimuth,
+                azimuth = azimuth,
                 lockedBearing = lockedBearing,
-                onToggleLock  = onToggleLock,
-                modifier = Modifier
-                    .sizeIn(maxWidth = Constants.Ui.ROSE_MAX_WIDTH)
-                    .padding(8.dp),
+                onToggleLock = onToggleLock,
+                modifier =
+                    Modifier
+                        .sizeIn(maxWidth = Constants.Ui.ROSE_MAX_WIDTH)
+                        .padding(8.dp),
             )
         }
 
@@ -552,16 +565,16 @@ private fun TopInfoBar(
     val daylightOn = themeMode == ThemeMode.DAYLIGHT
 
     Row(
-        modifier              = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
-        verticalAlignment     = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Camera icon — manually enter AR overlay mode
         IconButton(onClick = onEnterAr) {
             Icon(
-                imageVector        = Icons.Filled.CameraAlt,
+                imageVector = Icons.Filled.CameraAlt,
                 contentDescription = "AR overlay",
-                tint               = c.textSecondary,
+                tint = c.textSecondary,
             )
         }
         // Daylight mode — the outdoor high-contrast palette. Deliberately one
@@ -569,16 +582,16 @@ private fun TopInfoBar(
         // screen is hardest to read.
         IconButton(onClick = onToggleDaylight) {
             Icon(
-                imageVector        = if (daylightOn) Icons.Filled.DarkMode else Icons.Filled.LightMode,
+                imageVector = if (daylightOn) Icons.Filled.DarkMode else Icons.Filled.LightMode,
                 contentDescription = if (daylightOn) "Leave daylight mode" else "Daylight mode",
-                tint               = c.textSecondary,
+                tint = c.textSecondary,
             )
         }
         IconButton(onClick = onOpenSettings) {
             Icon(
-                imageVector        = Icons.Outlined.Settings,
+                imageVector = Icons.Outlined.Settings,
                 contentDescription = "Settings",
-                tint               = c.textSecondary,
+                tint = c.textSecondary,
             )
         }
     }
@@ -640,9 +653,10 @@ private fun SettingsDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = c.bgCard) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 Text(
@@ -657,18 +671,20 @@ private fun SettingsDialog(
                 // hunting for.
                 SettingsRow(
                     title = "North mode",
-                    subtitle = "Magnetic works everywhere and needs nothing. True " +
-                        "north matches paper maps and needs a rough location.",
+                    subtitle =
+                        "Magnetic works everywhere and needs nothing. True " +
+                            "north matches paper maps and needs a rough location.",
                     // The correction figure lives here rather than on the compass
                     // face: it is meaningless to most people, it is derived from
                     // where you are, and on the face it pushed the mode control
                     // sideways every time it changed width. Someone working from
                     // a paper map needs the number and will come looking.
-                    detail = if (trueNorthActive) {
-                        "Correcting by %+.1f° where you are.".format(declination)
-                    } else {
-                        null
-                    },
+                    detail =
+                        if (trueNorthActive) {
+                            "Correcting by %+.1f° where you are.".format(declination)
+                        } else {
+                            null
+                        },
                     // The trailing element is interactive here, so the row must
                     // not merge: merging would swallow the pill's two buttons
                     // into one unreachable node.
@@ -690,13 +706,15 @@ private fun SettingsDialog(
                     // and needs the phone to have been lowered since arriving —
                     // so "raise the phone to open the camera view" described
                     // behaviour the app had stopped having.
-                    subtitle = "On the compass page, raise the phone upright in " +
-                        "portrait to open the camera view.",
-                    modifier = Modifier.toggleable(
-                        value = arAutoSwitch,
-                        role = Role.Switch,
-                        onValueChange = onArAutoSwitchChange,
-                    ),
+                    subtitle =
+                        "On the compass page, raise the phone upright in " +
+                            "portrait to open the camera view.",
+                    modifier =
+                        Modifier.toggleable(
+                            value = arAutoSwitch,
+                            role = Role.Switch,
+                            onValueChange = onArAutoSwitchChange,
+                        ),
                 ) {
                     Switch(
                         checked = arAutoSwitch,
@@ -704,21 +722,26 @@ private fun SettingsDialog(
                         // and a Switch that also handled its own tap would have
                         // toggled twice where the two overlap.
                         onCheckedChange = null,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor   = c.levelOk,
-                            checkedTrackColor   = c.levelOk.copy(alpha = 0.35f),
-                            uncheckedThumbColor = c.textSecondary,
-                            uncheckedTrackColor = c.buttonBg,
-                        ),
+                        colors =
+                            SwitchDefaults.colors(
+                                checkedThumbColor = c.levelOk,
+                                checkedTrackColor = c.levelOk.copy(alpha = 0.35f),
+                                uncheckedThumbColor = c.textSecondary,
+                                uncheckedTrackColor = c.buttonBg,
+                            ),
                     )
                 }
 
                 SettingsRow(
-                    title = "Calibrate the compass",
+                    // Short on purpose: the trailing tag reserves the width of
+                    // its longest label, and the old "Calibrate the compass"
+                    // wrapped beside it.
+                    title = "Calibrate",
                     subtitle = "What to do when the heading looks wrong.",
-                    modifier = Modifier
-                        .clickable(onClick = onOpenCalibration)
-                        .semantics { role = Role.Button },
+                    modifier =
+                        Modifier
+                            .clickable(onClick = onOpenCalibration)
+                            .semantics { role = Role.Button },
                 ) {
                     // Live accuracy, in the slot the other two rows use for
                     // state. Settings said nothing about accuracy above LOW,
@@ -803,21 +826,25 @@ private fun AboutBlock(
  * tap it is worth telling a screen reader about in advance.
  */
 @Composable
-private fun AboutLink(text: String, onClick: () -> Unit) {
+private fun AboutLink(
+    text: String,
+    onClick: () -> Unit,
+) {
     val c = appColors
     Text(
         text = text,
         color = c.textPrimary,
         fontSize = 14.sp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .sizeIn(minHeight = 48.dp)
-            .clickable(onClick = onClick)
-            .wrapContentSize(Alignment.CenterStart)
-            .semantics {
-                role = Role.Button
-                contentDescription = "$text, opens in your browser"
-            },
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .sizeIn(minHeight = 48.dp)
+                .clickable(onClick = onClick)
+                .wrapContentSize(Alignment.CenterStart)
+                .semantics {
+                    role = Role.Button
+                    contentDescription = "$text, opens in your browser"
+                },
     )
 }
 
@@ -842,16 +869,17 @@ private fun SettingsRow(
     val spoken = listOfNotNull(title, subtitle, detail).joinToString(" ")
 
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .sizeIn(minHeight = 48.dp)
-            .then(
-                if (mergeWholeRow) {
-                    Modifier.semantics(mergeDescendants = true) { }
-                } else {
-                    Modifier
-                }
-            ),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .sizeIn(minHeight = 48.dp)
+                .then(
+                    if (mergeWholeRow) {
+                        Modifier.semantics(mergeDescendants = true) { }
+                    } else {
+                        Modifier
+                    },
+                ),
         verticalArrangement = Arrangement.Center,
     ) {
         Row(
@@ -863,19 +891,20 @@ private fun SettingsRow(
                 text = title,
                 color = c.textPrimary,
                 fontSize = 15.sp,
-                modifier = Modifier
-                    .weight(1f)
-                    // Unmerged rows have no single node to carry the setting, so
-                    // the title becomes it and the lines below are cleared —
-                    // otherwise the explanation is three separate swipe stops
-                    // sitting between the name and the control it describes.
-                    .then(
-                        if (mergeWholeRow) {
-                            Modifier
-                        } else {
-                            Modifier.semantics { contentDescription = spoken }
-                        }
-                    ),
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        // Unmerged rows have no single node to carry the setting, so
+                        // the title becomes it and the lines below are cleared —
+                        // otherwise the explanation is three separate swipe stops
+                        // sitting between the name and the control it describes.
+                        .then(
+                            if (mergeWholeRow) {
+                                Modifier
+                            } else {
+                                Modifier.semantics { contentDescription = spoken }
+                            },
+                        ),
             )
             Spacer(modifier = Modifier.width(12.dp))
             trailing()
@@ -898,14 +927,46 @@ private fun SettingsRow(
     }
 }
 
-/** Sensor accuracy as a dot and a word, for the Calibrate row's trailing slot. */
+/**
+ * Sensor accuracy as a dot and a word, for the Calibrate row's trailing slot.
+ *
+ * The slot is always as wide as the longest label. Sized to the current one,
+ * a POOR ↔ NOT USABLE flip rewrapped the title, grew the row, and made the
+ * whole dialog jump every time the sensor changed its mind.
+ */
 @Composable
-private fun AccuracyTag(label: String, tint: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun AccuracyTag(
+    label: String,
+    tint: Color,
+) {
+    val c = appColors
+    val widest =
+        remember(c) {
+            CompassAccuracy.entries.map { accuracyLabel(it, c).first }.maxBy { it.length }
+        }
+    Box(contentAlignment = Alignment.CenterEnd) {
+        // Invisible stand-in that fixes the width; monospace, so length is width.
+        AccuracyTagContent(
+            label = widest,
+            tint = tint,
+            modifier = Modifier.alpha(0f).clearAndSetSemantics { },
+        )
+        AccuracyTagContent(label = label, tint = tint)
+    }
+}
+
+@Composable
+private fun AccuracyTagContent(
+    label: String,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(
-            modifier = Modifier
-                .size(6.dp)
-                .background(tint, CircleShape),
+            modifier =
+                Modifier
+                    .size(6.dp)
+                    .background(tint, CircleShape),
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
@@ -955,17 +1016,18 @@ private fun HeadingReadout(
     val c = appColors
 
     // 359.7° rounds to 360, which is not a heading anyone reads — fold it to 0.
-    val rounded    = normalizedHeading(azimuth)
-    val fullLabel  = bearingToFullLabel(azimuth)
+    val rounded = normalizedHeading(azimuth)
+    val fullLabel = bearingToFullLabel(azimuth)
     val trueActive = trueNorth && hasDeclination
     val confidence = confidenceNote(accuracy, c)
 
     // Read when the user focuses the readout, so asking for the heading always
     // returns the exact one. Rebuilt only when the whole degree changes; keyed
     // on the raw azimuth this would be rebuilt on every sensor event.
-    val description = remember(rounded) {
-        "Heading $rounded degrees, ${bearingToSpokenLabel(rounded.toFloat())}"
-    }
+    val description =
+        remember(rounded) {
+            "Heading $rounded degrees, ${bearingToSpokenLabel(rounded.toFloat())}"
+        }
 
     // ── What gets announced automatically, and how often ──────────────────────
     // Not the same string. A live region re-announces whenever its description
@@ -997,27 +1059,28 @@ private fun HeadingReadout(
         // is dropped from the tree entirely. Bounds must be non-empty for a
         // node to exist for a screen reader at all.
         Text(
-            text       = "$rounded°",
-            color      = c.textPrimary,
+            text = "$rounded°",
+            color = c.textPrimary,
             // Normal, not Light: hairline strokes disappear under glare,
             // which is precisely when this number matters most.
-            fontSize   = 52.sp,
+            fontSize = 52.sp,
             fontWeight = FontWeight.Normal,
             fontFamily = FontFamily.Monospace,
             lineHeight = 52.sp,
-            modifier   = Modifier.semantics { this.contentDescription = description },
+            modifier = Modifier.semantics { this.contentDescription = description },
         )
         Text(
-            text          = fullLabel,
-            color         = c.textPrimary,
-            fontSize      = 16.sp,
+            text = fullLabel,
+            color = c.textPrimary,
+            fontSize = 16.sp,
             letterSpacing = 2.sp,
-            modifier      = Modifier.semantics {
-                this.contentDescription = sector
-                // Polite, not Assertive: a heading change must never interrupt
-                // whatever the user is already being told.
-                liveRegion = LiveRegionMode.Polite
-            },
+            modifier =
+                Modifier.semantics {
+                    this.contentDescription = sector
+                    // Polite, not Assertive: a heading change must never interrupt
+                    // whatever the user is already being told.
+                    liveRegion = LiveRegionMode.Polite
+                },
         )
 
         // ── The pill sits alone, and that is the point ────────────────────
@@ -1027,11 +1090,11 @@ private fun HeadingReadout(
         // target that moved between taps. Anything that can appear beside it
         // goes on its own line below instead.
         NorthModePill(
-            trueActive       = trueActive,
-            availability     = northAvailability,
-            awaitingFix      = awaitingNorthFix,
+            trueActive = trueActive,
+            availability = northAvailability,
+            awaitingFix = awaitingNorthFix,
             onSelectMagnetic = onSelectMagnetic,
-            onSelectTrue     = onSelectTrue,
+            onSelectTrue = onSelectTrue,
         )
 
         FlowRow(
@@ -1048,23 +1111,24 @@ private fun HeadingReadout(
                 // send the user through a figure eight for nothing.
                 val actionable = accuracy != CompassAccuracy.NO_SIGNAL
                 Text(
-                    text          = text,
-                    color         = color,
-                    fontSize      = 12.sp,
+                    text = text,
+                    color = color,
+                    fontSize = 12.sp,
                     letterSpacing = 1.sp,
-                    fontFamily    = FontFamily.Monospace,
-                    modifier      = if (actionable) {
-                        Modifier
-                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                            .clickable(onClick = onOpenCalibration)
-                            .wrapContentSize(Alignment.Center)
-                            .semantics {
-                                role = Role.Button
-                                contentDescription = "$text. Open calibration help"
-                            }
-                    } else {
-                        Modifier
-                    }.align(Alignment.CenterVertically),
+                    fontFamily = FontFamily.Monospace,
+                    modifier =
+                        if (actionable) {
+                            Modifier
+                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                .clickable(onClick = onOpenCalibration)
+                                .wrapContentSize(Alignment.Center)
+                                .semantics {
+                                    role = Role.Button
+                                    contentDescription = "$text. Open calibration help"
+                                }
+                        } else {
+                            Modifier
+                        }.align(Alignment.CenterVertically),
                 )
             }
 
@@ -1079,33 +1143,37 @@ private fun HeadingReadout(
             // deliberate tap on TRUE simply bounced back to MAG after ten
             // seconds with no reason given, and nothing ever retried.
             when {
-                northFixFailed -> Text(
-                    text          = "NO LOCATION FIX",
-                    color         = c.levelWarn,
-                    fontSize      = 12.sp,
-                    letterSpacing = 1.sp,
-                    fontFamily    = FontFamily.Monospace,
-                    modifier      = Modifier
-                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                        .clickable(onClick = onRetryNorthFix)
-                        .wrapContentSize(Alignment.Center)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription =
-                                "No location fix, so the compass is showing " +
-                                    "magnetic north. Double tap to try again."
-                        }
-                        .align(Alignment.CenterVertically),
-                )
+                northFixFailed -> {
+                    Text(
+                        text = "NO LOCATION FIX",
+                        color = c.levelWarn,
+                        fontSize = 12.sp,
+                        letterSpacing = 1.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier =
+                            Modifier
+                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                .clickable(onClick = onRetryNorthFix)
+                                .wrapContentSize(Alignment.Center)
+                                .semantics {
+                                    role = Role.Button
+                                    contentDescription =
+                                        "No location fix, so the compass is showing " +
+                                        "magnetic north. Double tap to try again."
+                                }.align(Alignment.CenterVertically),
+                    )
+                }
 
-                awaitingNorthFix -> Text(
-                    text          = "GETTING LOCATION",
-                    color         = c.textSecondary,
-                    fontSize      = 12.sp,
-                    letterSpacing = 1.sp,
-                    fontFamily    = FontFamily.Monospace,
-                    modifier      = Modifier.align(Alignment.CenterVertically),
-                )
+                awaitingNorthFix -> {
+                    Text(
+                        text = "GETTING LOCATION",
+                        color = c.textSecondary,
+                        fontSize = 12.sp,
+                        letterSpacing = 1.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                    )
+                }
             }
         }
 
@@ -1149,13 +1217,15 @@ private fun HeadingReadout(
                 val off = abs(delta).roundToInt()
                 val onCourse = abs(delta) <= Constants.Heading.LOCK_ON_COURSE_DEG
                 Text(
-                    text = when {
-                        onCourse -> "ON COURSE"
-                        delta > 0 -> "$off° RIGHT"
-                        else -> "$off° LEFT"
-                    },
-                    color = (if (onCourse) c.levelOk else c.textSecondary)
-                        .copy(alpha = lineAlpha),
+                    text =
+                        when {
+                            onCourse -> "ON COURSE"
+                            delta > 0 -> "$off° RIGHT"
+                            else -> "$off° LEFT"
+                        },
+                    color =
+                        (if (onCourse) c.levelOk else c.textSecondary)
+                            .copy(alpha = lineAlpha),
                     fontSize = 13.sp,
                     letterSpacing = 1.5.sp,
                     fontFamily = FontFamily.Monospace,
@@ -1173,9 +1243,10 @@ private fun HeadingReadout(
 private fun confidenceNote(
     accuracy: CompassAccuracy,
     c: AppPalette,
-): Pair<String, Color>? = when (accuracy) {
-    CompassAccuracy.HIGH, CompassAccuracy.MEDIUM -> null
-    CompassAccuracy.LOW        -> "LOW ACCURACY"         to c.levelWarn
-    CompassAccuracy.UNRELIABLE -> "CALIBRATE · FIGURE 8" to c.levelWarn
-    CompassAccuracy.NO_SIGNAL  -> "NO SENSOR SIGNAL"     to c.levelCritical
-}
+): Pair<String, Color>? =
+    when (accuracy) {
+        CompassAccuracy.HIGH, CompassAccuracy.MEDIUM -> null
+        CompassAccuracy.LOW -> "LOW ACCURACY" to c.levelWarn
+        CompassAccuracy.UNRELIABLE -> "CALIBRATE · FIGURE 8" to c.levelWarn
+        CompassAccuracy.NO_SIGNAL -> "NO SENSOR SIGNAL" to c.levelCritical
+    }

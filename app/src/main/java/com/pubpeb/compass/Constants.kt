@@ -15,7 +15,6 @@ import androidx.compose.ui.unit.dp
  * object to read rather than four files to grep.
  */
 object Constants {
-
     /** Sensor acquisition and fusion. */
     object Sensor {
         /** Low-pass filter alpha on raw accelerometer/magnetometer arrays. */
@@ -202,8 +201,45 @@ object Constants {
         /** Half-FOV assumed before the camera reports its real optics. */
         const val DEFAULT_FOV_HALF_DEG = 30f
 
+        /**
+         * Scrim behind the safety notice shown on every AR entry (Play Families
+         * policy). Dims the scene enough that the card reads as the one thing
+         * to deal with, while the compass stays visible underneath.
+         */
+        const val SAFETY_SCRIM_ALPHA = 0.6f
+
+        /** Widest the safety card grows on large screens, in dp. */
+        const val SAFETY_CARD_MAX_WIDTH_DP = 340
+
+        /**
+         * How long the safety notice stays up before it dismisses itself. The
+         * "I understand" button fills across this span, so the countdown is
+         * visible. Stretched further for accessibility users by
+         * `calculateRecommendedTimeoutMillis`.
+         */
+        const val SAFETY_AUTO_DISMISS_MS = 15_000L
+
+        /** Opacity of the countdown fill drawn over the button, in `textPrimary`. */
+        const val SAFETY_FILL_ALPHA = 0.18f
+
+        /**
+         * Largest frame-to-frame step the countdown will count. Frames stop while
+         * the app is in the background; without the cap, coming back would add
+         * the whole time away in one step and dismiss the notice unseen.
+         */
+        const val SAFETY_FRAME_GAP_CAP_MS = 100L
+
         /** Labels sit slightly above centre so they clear the heading HUD. */
         const val HORIZON_BIAS_FRACTION = -0.12f
+
+        /**
+         * Distance from the bottom of the heading HUD to the direction bar's
+         * centre line, in dp. Leaves ~76 dp (about 5 rem) above the chips, and
+         * room for the lock marker, which rides 7–41 dp above the line, to clear
+         * the HUD. [HORIZON_BIAS_FRACTION] places the bar only until the HUD has
+         * been measured.
+         */
+        const val HORIZON_BELOW_HUD_DP = 94
 
         /**
          * How far elevation must move before the horizon commits to a new
@@ -419,5 +455,4 @@ object Constants {
         const val PRIVACY = "$SITE/privacy"
         const val SUPPORT = "$SITE/support"
     }
-
 }

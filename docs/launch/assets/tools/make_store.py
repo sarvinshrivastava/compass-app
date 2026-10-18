@@ -56,11 +56,7 @@ DAY_THEME = dict(top=(0xFF, 0xFF, 0xFF), bottom=(0xE9, 0xED, 0xF4),
 FRAMES = [
     dict(name="01-compass.png", raw="raw-01-compass.png", theme="night", layout="A",
          head="True north, the\nsecond it opens.", sub=None,
-         crop=(0, 560, 1080, 1960),
-         pending="Raw shows MAG, not TRUE. Needs a real-device capture with a "
-                 "location fix so the tag reads TRUE + declination; the emulator "
-                 "returns no fix (DeclinationRepo: 'no fix within timeout'). "
-                 "Until then the headline overclaims — do not upload this frame."),
+         crop=(0, 560, 1080, 1960)),
 
     dict(name="02-ar.png", raw="raw-02-ar-forest.png", theme="night", layout="A",
          head="North, on the\nreal horizon.", sub=None,
@@ -95,7 +91,7 @@ FRAMES = [
     dict(name="07-settings.png", raw="raw-09-settings.png", theme="night", layout="B",
          head="The clever part\nis optional.",
          sub="Calibration help, always one tap away.",
-         crop=(0, 980, 1080, 1620)),
+         crop=(0, 600, 1080, 1420)),
 
     dict(name="08-promise.png", raw=None, theme="day", layout="C",
          head=None, sub=None, crop=None,

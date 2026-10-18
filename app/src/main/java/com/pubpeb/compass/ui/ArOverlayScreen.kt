@@ -12,7 +12,11 @@ import androidx.camera.core.Preview
 import androidx.camera.core.TorchState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,22 +30,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.LockOpen
-import androidx.compose.material.icons.filled.FlashOff
-import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -53,28 +61,38 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -85,8 +103,8 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
-import com.pubpeb.compass.ui.theme.appColors
 import com.pubpeb.compass.Constants
+import com.pubpeb.compass.ui.theme.appColors
 import com.pubpeb.compass.util.PermissionAskLog
 import com.pubpeb.compass.util.bearingToCardinal
 import com.pubpeb.compass.util.bearingToSpokenLabel
@@ -98,19 +116,22 @@ import kotlin.math.atan
 import kotlin.math.roundToInt
 
 // ── Cardinal direction data ───────────────────────────────────────────────────
-private data class CardinalDir(val angleDeg: Float, val label: String)
-
-private val CARDINALS = listOf(
-    CardinalDir(  0f, "N"),
-    CardinalDir( 45f, "NE"),
-    CardinalDir( 90f, "E"),
-    CardinalDir(135f, "SE"),
-    CardinalDir(180f, "S"),
-    CardinalDir(225f, "SW"),
-    CardinalDir(270f, "W"),
-    CardinalDir(315f, "NW"),
+private data class CardinalDir(
+    val angleDeg: Float,
+    val label: String,
 )
 
+private val CARDINALS =
+    listOf(
+        CardinalDir(0f, "N"),
+        CardinalDir(45f, "NE"),
+        CardinalDir(90f, "E"),
+        CardinalDir(135f, "SE"),
+        CardinalDir(180f, "S"),
+        CardinalDir(225f, "SW"),
+        CardinalDir(270f, "W"),
+        CardinalDir(315f, "NW"),
+    )
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -170,9 +191,10 @@ fun ArOverlayScreen(
     // showed first-run copy and a "Grant Camera" button that the system
     // auto-denies without ever drawing a dialog — a control that visibly does
     // nothing, forever.
-    val permanentlyDenied = !cameraPermission.status.isGranted &&
-        !cameraPermission.status.shouldShowRationale &&
-        hasAsked
+    val permanentlyDenied =
+        !cameraPermission.status.isGranted &&
+            !cameraPermission.status.shouldShowRationale &&
+            hasAsked
 
     // AR is a mode, not a screen, so the system back gesture must leave the mode.
     // Without this, back fell through to the activity and quit the app from what
@@ -185,54 +207,245 @@ fun ArOverlayScreen(
     // until this reports ready — keeps the whole overlay at alpha 0 and the
     // permission prompt is invisible underneath it. That made "tap AR with
     // camera denied" do nothing at all, with no way out but lowering the phone.
+    // Play Families policy: a safety warning immediately on launch of the AR
+    // section — so on every entry, not once per install. The Crossfade in
+    // CompassScreen disposes this screen on exit, which resets the flag; the
+    // saveable only stops a rotation within one entry from re-showing it.
+    var showSafetyNotice by rememberSaveable { mutableStateOf(true) }
+
+    // The caller holds this whole screen at alpha 0 until it reports streaming,
+    // so the notice's countdown must not start before then — or part of its
+    // 15 s would run out while nobody could see it.
+    var arVisible by remember { mutableStateOf(false) }
+    val reportStreaming: (Boolean) -> Unit = { streaming ->
+        if (streaming) arVisible = true
+        onStreamingChanged(streaming)
+    }
+
     val awaitingCamera = cameraPermission.status.isGranted
     LaunchedEffect(awaitingCamera) {
-        if (!awaitingCamera) onStreamingChanged(true)
+        if (!awaitingCamera) reportStreaming(true)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        when {
-            cameraPermission.status.isGranted ->
-                ArContent(
-                    azimuth      = azimuth,
-                    arAzimuth    = arAzimuth,
-                    horizonElevationDeg = horizonElevationDeg,
-                    onExitAr     = onExitAr,
-                    lockedBearing = lockedBearing,
-                    onToggleLock  = onToggleLock,
-                    onStreamingChanged = onStreamingChanged,
-                )
+        // While the notice is up, the AR controls underneath are hidden from
+        // TalkBack so focus cannot wander behind the scrim.
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .then(if (showSafetyNotice) Modifier.clearAndSetSemantics {} else Modifier),
+        ) {
+            when {
+                cameraPermission.status.isGranted -> {
+                    ArContent(
+                        azimuth = azimuth,
+                        arAzimuth = arAzimuth,
+                        onExitAr = onExitAr,
+                        lockedBearing = lockedBearing,
+                        onToggleLock = onToggleLock,
+                        onStreamingChanged = reportStreaming,
+                    )
+                }
 
-            permanentlyDenied ->
-                CameraPermissionLayout(
-                    title       = "Camera Is Turned Off",
-                    body        = "Camera access for this app is switched off in system " +
-                                  "settings, so the AR overlay cannot start. You can turn it " +
-                                  "back on from there. The flat compass works either way.",
-                    buttonLabel = "Open Settings",
-                    onRequest   = { context.openAppSettings() },
-                    onExitAr    = onExitAr,
-                )
+                permanentlyDenied -> {
+                    CameraPermissionLayout(
+                        title = "Camera Is Turned Off",
+                        body =
+                            "Camera access for this app is switched off in system " +
+                                "settings, so the AR overlay cannot start. You can turn it " +
+                                "back on from there. The flat compass works either way.",
+                        buttonLabel = "Open Settings",
+                        onRequest = { context.openAppSettings() },
+                        onExitAr = onExitAr,
+                    )
+                }
 
-            cameraPermission.status.shouldShowRationale ->
-                CameraPermissionLayout(
-                    title       = "Camera Needed for AR",
-                    body        = "Camera access is required to show the AR compass overlay. " +
-                                  "Without it the flat compass rose is still available.",
-                    buttonLabel = "Allow Camera",
-                    onRequest   = requestCamera,
-                    onExitAr    = onExitAr,
-                )
+                cameraPermission.status.shouldShowRationale -> {
+                    CameraPermissionLayout(
+                        title = "Camera Needed for AR",
+                        body =
+                            "Camera access is required to show the AR compass overlay. " +
+                                "Without it the flat compass rose is still available.",
+                        buttonLabel = "Allow Camera",
+                        onRequest = requestCamera,
+                        onExitAr = onExitAr,
+                    )
+                }
 
-            else ->
-                CameraPermissionLayout(
-                    title       = "Camera Access",
-                    body        = "The AR overlay uses your camera to show cardinal directions " +
-                                  "over the live scene. Your camera feed is never stored or transmitted.",
-                    buttonLabel = "Grant Camera",
-                    onRequest   = requestCamera,
-                    onExitAr    = onExitAr,
-                )
+                else -> {
+                    CameraPermissionLayout(
+                        title = "Camera Access",
+                        body =
+                            "The AR overlay uses your camera to show cardinal directions " +
+                                "over the live scene. Your camera feed is never stored or transmitted.",
+                        buttonLabel = "Grant Camera",
+                        onRequest = requestCamera,
+                        onExitAr = onExitAr,
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showSafetyNotice,
+            enter = fadeIn(chromeSpec(Constants.Ui.MODE_TRANSITION_MS)),
+            exit = fadeOut(chromeSpec(Constants.Ui.MODE_TRANSITION_MS)),
+        ) {
+            ArSafetyNotice(
+                countdownRunning = arVisible,
+                onAcknowledge = { showSafetyNotice = false },
+                onExitAr = onExitAr,
+            )
+        }
+    }
+}
+
+// ── Safety notice ─────────────────────────────────────────────────────────────
+
+/**
+ * The Families-policy AR warning: parental supervision and awareness of
+ * physical surroundings, shown over the scene on every entry.
+ *
+ * Dismissed by the button, or by itself after [Constants.Ar.SAFETY_AUTO_DISMISS_MS]
+ * with the button filling start-to-end so the countdown is visible. Not by
+ * tap-anywhere: auto-entry fires while the phone is being raised, and the lift
+ * itself could dismiss it. The scrim swallows every other tap; the exit X and
+ * system back still leave AR, because a warning must never be a trap.
+ *
+ * The countdown is summed from frame deltas, not run as an animation: with
+ * system animations off a tween completes at once and the notice would vanish
+ * unread. Deltas are capped so time spent in the background does not count.
+ */
+@Composable
+private fun ArSafetyNotice(
+    countdownRunning: Boolean,
+    onAcknowledge: () -> Unit,
+    onExitAr: () -> Unit,
+) {
+    val c = appColors
+    val a11y = LocalAccessibilityManager.current
+    val totalMs =
+        remember(a11y) {
+            a11y?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = Constants.Ar.SAFETY_AUTO_DISMISS_MS,
+                containsIcons = true,
+                containsText = true,
+                containsControls = true,
+            ) ?: Constants.Ar.SAFETY_AUTO_DISMISS_MS
+        }
+    var elapsedMs by rememberSaveable { mutableStateOf(0L) }
+
+    LaunchedEffect(countdownRunning, totalMs) {
+        if (!countdownRunning) return@LaunchedEffect
+        var last = withFrameMillis { it }
+        while (elapsedMs < totalMs) {
+            withFrameMillis { now ->
+                elapsedMs += (now - last).coerceIn(0L, Constants.Ar.SAFETY_FRAME_GAP_CAP_MS)
+                last = now
+            }
+        }
+        onAcknowledge()
+    }
+
+    val buttonShape = RoundedCornerShape(10.dp)
+    val fillColor = c.textPrimary.copy(alpha = Constants.Ar.SAFETY_FILL_ALPHA)
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = Constants.Ar.SAFETY_SCRIM_ALPHA))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ).windowInsetsPadding(WindowInsets.safeDrawing),
+    ) {
+        ExitArButton(
+            onExitAr = onExitAr,
+            modifier =
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
+        )
+
+        Column(
+            modifier =
+                Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp)
+                    .widthIn(max = Constants.Ar.SAFETY_CARD_MAX_WIDTH_DP.dp)
+                    .background(c.chipBg, RoundedCornerShape(16.dp))
+                    .padding(24.dp)
+                    .semantics {
+                        paneTitle = "Safety notice"
+                        isTraversalGroup = true
+                        traversalIndex = -1f
+                    },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Warning,
+                contentDescription = null,
+                tint = c.textPrimary,
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Before you use AR",
+                color = c.textPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text =
+                    "Stay aware of your surroundings and any hazards.\n\n" +
+                        "Children should use AR with a parent or guardian.",
+                color = c.textPrimary,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = onAcknowledge,
+                shape = buttonShape,
+                // The container is painted in drawBehind instead, so the
+                // countdown fill can sit between it and the label.
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = c.textPrimary,
+                    ),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clip(buttonShape)
+                        .drawBehind {
+                            drawRect(c.buttonBg)
+                            // Read here, not in composition: the fill advances
+                            // every frame and should cost a redraw, not a
+                            // recomposition.
+                            val fraction = (elapsedMs.toFloat() / totalMs).coerceIn(0f, 1f)
+                            val fillWidth = size.width * fraction
+                            drawRect(
+                                color = fillColor,
+                                topLeft =
+                                    if (layoutDirection == LayoutDirection.Rtl) {
+                                        Offset(size.width - fillWidth, 0f)
+                                    } else {
+                                        Offset.Zero
+                                    },
+                                size = Size(fillWidth, size.height),
+                            )
+                        },
+            ) {
+                Text(text = "I understand", fontSize = 16.sp)
+            }
         }
     }
 }
@@ -243,7 +456,6 @@ fun ArOverlayScreen(
 private fun ArContent(
     azimuth: Float,
     arAzimuth: Float,
-    horizonElevationDeg: Float,
     onExitAr: () -> Unit,
     lockedBearing: Float?,
     onToggleLock: (() -> Unit)?,
@@ -254,6 +466,10 @@ private fun ArContent(
     var camera by remember { mutableStateOf<Camera?>(null) }
     var isTorchOn by remember { mutableStateOf(false) }
     var cameraFailed by remember { mutableStateOf(false) }
+
+    // Bottom edge of the heading HUD, in root coordinates. The direction bar
+    // hangs a fixed distance below it; NaN until the HUD is first laid out.
+    var hudBottomPx by remember { mutableFloatStateOf(Float.NaN) }
 
     // Leaving AR must not leave the torch burning behind the compass rose.
     DisposableEffect(Unit) {
@@ -277,9 +493,9 @@ private fun ArContent(
         CameraPreview(
             onCameraBound = { camera = it },
             onFovMeasured = { measuredHalfFov -> fovHalfDeg = measuredHalfFov },
-            onBindFailed  = { cameraFailed = true },
+            onBindFailed = { cameraFailed = true },
             onStreamingChanged = onStreamingChanged,
-            modifier      = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
         )
 
         // Layer 2 — cardinal labels. Also un-inset: the FOV → screen mapping is
@@ -290,12 +506,12 @@ private fun ArContent(
         // than as the one being explained.
         if (!cameraFailed) {
             CardinalOverlay(
-                azimuth      = arAzimuth,
-                horizonElevationDeg = horizonElevationDeg,
-                fovHalfDeg   = fovHalfDeg,
+                azimuth = arAzimuth,
+                fovHalfDeg = fovHalfDeg,
                 lockedBearing = lockedBearing,
-                headingDeg   = azimuth,
-                modifier     = Modifier.fillMaxSize(),
+                headingDeg = azimuth,
+                hudBottomPx = hudBottomPx,
+                modifier = Modifier.fillMaxSize(),
             )
         }
 
@@ -303,39 +519,44 @@ private fun ArContent(
         // buttons clear the camera cutout and gesture bar on real hardware while
         // the scene behind them stays full-bleed.
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
         ) {
             ExitArButton(
                 onExitAr = onExitAr,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
             )
 
             ArHeadingHud(
-                azimuth  = azimuth,
+                azimuth = azimuth,
                 lockedBearing = lockedBearing,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .onGloballyPositioned { hudBottomPx = it.boundsInRoot().bottom },
             )
 
             // The labels keep tracking on a dead preview, which reads as a
             // broken AR mode rather than an unavailable camera. Say which.
             if (cameraFailed) {
                 Text(
-                    text       = "Camera unavailable.\nAnother app may be using it.",
-                    color      = c.textPrimary,
-                    fontSize   = 15.sp,
-                    textAlign  = TextAlign.Center,
+                    text = "Camera unavailable.\nAnother app may be using it.",
+                    color = c.textPrimary,
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center,
                     lineHeight = 22.sp,
-                    modifier   = Modifier
-                        .align(Alignment.Center)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(c.chipBg, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.Center)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(c.chipBg, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
                 )
             }
 
@@ -355,15 +576,16 @@ private fun ArContent(
             //
             // Lock left, torch right, preserving the order they already had.
             Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 28.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 28.dp),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 onToggleLock?.let { toggle ->
                     ArLockButton(
-                        locked   = lockedBearing != null,
+                        locked = lockedBearing != null,
                         onToggle = toggle,
                     )
                 }
@@ -374,7 +596,7 @@ private fun ArContent(
                 camera?.let { cam ->
                     TorchButton(
                         isTorchOn = isTorchOn,
-                        onToggle  = { cam.cameraControl.enableTorch(!isTorchOn) },
+                        onToggle = { cam.cameraControl.enableTorch(!isTorchOn) },
                     )
                 }
             }
@@ -399,22 +621,23 @@ private fun ExitArButton(
 ) {
     val c = appColors
     Box(
-        modifier = modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(c.chipBg, CircleShape)
-            .clickable(onClick = onExitAr)
-            .semantics {
-                contentDescription = "Exit AR view"
-                role = Role.Button
-            },
+        modifier =
+            modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(c.chipBg, CircleShape)
+                .clickable(onClick = onExitAr)
+                .semantics {
+                    contentDescription = "Exit AR view"
+                    role = Role.Button
+                },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector        = Icons.Filled.Close,
+            imageVector = Icons.Filled.Close,
             contentDescription = null,
-            tint               = c.textPrimary,
-            modifier           = Modifier.size(24.dp),
+            tint = c.textPrimary,
+            modifier = Modifier.size(24.dp),
         )
     }
 }
@@ -452,7 +675,7 @@ private fun ArHeadingHud(
     val c = appColors
 
     // 359.7° rounds to 360, which is not a heading — fold it back to 0.
-    val degrees  = normalizedHeading(azimuth)
+    val degrees = normalizedHeading(azimuth)
     val cardinal = bearingToCardinal(degrees.toFloat())
     val sectorKey = bearingToSpokenLabel(degrees.toFloat())
 
@@ -466,10 +689,11 @@ private fun ArHeadingHud(
     // description makes TalkBack narrate continuously for as long as the phone
     // is moving.
     Column(
-        modifier = modifier
-            .background(c.chipBg, RoundedCornerShape(12.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .padding(horizontal = 0.dp),
+        modifier =
+            modifier
+                .background(c.chipBg, RoundedCornerShape(12.dp))
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -483,28 +707,29 @@ private fun ArHeadingHud(
             // description. Merging also replaces the exact degree on focus with
             // whatever description the parent carries.
             Text(
-                text       = "$degrees°",
-                color      = c.textPrimary,
-                fontSize   = 36.sp,
+                text = "$degrees°",
+                color = c.textPrimary,
+                fontSize = 36.sp,
                 fontWeight = FontWeight.Light,
                 fontFamily = FontFamily.Monospace,
                 lineHeight = 36.sp,
-                modifier   = Modifier.semantics { contentDescription = spokenHeading },
+                modifier = Modifier.semantics { contentDescription = spokenHeading },
             )
             Spacer(modifier = Modifier.padding(horizontal = 8.dp))
             Text(
-                text          = cardinal,
-                color         = if (cardinal == "N") c.northLabel else c.textSecondary,
-                fontSize      = 18.sp,
-                fontWeight    = FontWeight.SemiBold,
+                text = cardinal,
+                color = if (cardinal == "N") c.northLabel else c.textSecondary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
                 letterSpacing = 2.sp,
                 // The live region rides here: this Text's own content changes
                 // eight times per rotation, which is the announce cadence we
                 // want, and it has real bounds so it is actually in the tree.
-                modifier      = Modifier.semantics {
-                    contentDescription = sectorKey
-                    liveRegion = LiveRegionMode.Polite
-                },
+                modifier =
+                    Modifier.semantics {
+                        contentDescription = sectorKey
+                        liveRegion = LiveRegionMode.Polite
+                    },
             )
         }
 
@@ -520,11 +745,12 @@ private fun ArHeadingHud(
             val off = abs(delta).roundToInt()
             val onCourse = abs(delta) <= Constants.Heading.LOCK_ON_COURSE_DEG
             Text(
-                text = when {
-                    onCourse -> "ON COURSE"
-                    delta > 0 -> "$off° RIGHT"
-                    else -> "$off° LEFT"
-                },
+                text =
+                    when {
+                        onCourse -> "ON COURSE"
+                        delta > 0 -> "$off° RIGHT"
+                        else -> "$off° LEFT"
+                    },
                 color = if (onCourse) c.levelOk else c.textSecondary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -554,15 +780,16 @@ private fun ArLockButton(
 ) {
     val c = appColors
     Box(
-        modifier = modifier
-            .size(56.dp)
-            .clip(CircleShape)
-            .background(c.chipBg, CircleShape)
-            .clickable(onClick = onToggle)
-            .semantics {
-                contentDescription = if (locked) "Clear locked bearing" else "Lock this bearing"
-                role = Role.Button
-            },
+        modifier =
+            modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(c.chipBg, CircleShape)
+                .clickable(onClick = onToggle)
+                .semantics {
+                    contentDescription = if (locked) "Clear locked bearing" else "Lock this bearing"
+                    role = Role.Button
+                },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -624,16 +851,17 @@ private fun CameraPreview(
     onStreamingChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val context        = LocalContext.current
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Create PreviewView once; stable reference passed to AndroidView factory.
-    val previewView = remember {
-        PreviewView(context).apply {
-            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
-            scaleType          = PreviewView.ScaleType.FILL_CENTER
+    val previewView =
+        remember {
+            PreviewView(context).apply {
+                implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+                scaleType = PreviewView.ScaleType.FILL_CENTER
+            }
         }
-    }
 
     // Bind the camera exactly once per lifecycle owner; unbind on disposal.
     DisposableEffect(lifecycleOwner) {
@@ -652,8 +880,8 @@ private fun CameraPreview(
         // relative to the moment this effect ran, so the ~1 s that entry still
         // takes can be attributed rather than guessed at. Grep: `ar-timing`.
         val t0 = android.os.SystemClock.elapsedRealtime()
-        fun mark(stage: String) =
-            Log.i("ArOverlayScreen", "ar-timing $stage +${android.os.SystemClock.elapsedRealtime() - t0}ms")
+
+        fun mark(stage: String) = Log.i("ArOverlayScreen", "ar-timing $stage +${android.os.SystemClock.elapsedRealtime() - t0}ms")
         mark("effect-start")
 
         val future = ProcessCameraProvider.getInstance(context)
@@ -664,14 +892,18 @@ private fun CameraPreview(
                     val provider = future.get()
                     mark("provider-resolved")
                     boundProvider = provider
-                    val preview  = Preview.Builder().build()
-                        .also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                    val preview =
+                        Preview
+                            .Builder()
+                            .build()
+                            .also { it.setSurfaceProvider(previewView.surfaceProvider) }
                     provider.unbindAll()
-                    val camera = provider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                    )
+                    val camera =
+                        provider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                        )
                     mark("bound")
 
                     // First frame actually on screen — the stage the user
@@ -684,12 +916,13 @@ private fun CameraPreview(
                     // lands after a newer instance already reported STREAMING,
                     // the caller hides AR and nothing ever restores it, because
                     // LiveData will not re-emit a value it already holds.
-                    val streamObserver = Observer<PreviewView.StreamState> { state ->
-                        if (disposed) return@Observer
-                        val streaming = state == PreviewView.StreamState.STREAMING
-                        if (streaming) mark("streaming")
-                        onStreamingChanged(streaming)
-                    }
+                    val streamObserver =
+                        Observer<PreviewView.StreamState> { state ->
+                            if (disposed) return@Observer
+                            val streaming = state == PreviewView.StreamState.STREAMING
+                            if (streaming) mark("streaming")
+                            onStreamingChanged(streaming)
+                        }
                     previewStreamObserver = streamObserver
                     previewView.previewStreamState.observe(lifecycleOwner, streamObserver)
 
@@ -699,16 +932,19 @@ private fun CameraPreview(
                     // ── Query actual horizontal FOV via Camera2 interop ────────
                     // Camera2CameraInfo gives access to CameraCharacteristics.
                     val cam2Info = Camera2CameraInfo.from(camera.cameraInfo)
-                    val focalLengths = cam2Info.getCameraCharacteristic(
-                        CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
-                    )
-                    val sensorSize = cam2Info.getCameraCharacteristic(
-                        CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE
-                    )
+                    val focalLengths =
+                        cam2Info.getCameraCharacteristic(
+                            CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS,
+                        )
+                    val sensorSize =
+                        cam2Info.getCameraCharacteristic(
+                            CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE,
+                        )
 
                     if (focalLengths != null && focalLengths.isNotEmpty() &&
-                        sensorSize != null) {
-                        val focalLength  = focalLengths[0]       // mm, shortest (widest)
+                        sensorSize != null
+                    ) {
+                        val focalLength = focalLengths[0] // mm, shortest (widest)
                         // For portrait mode the camera sensor is physically landscape.
                         // The horizontal axis of the portrait screen maps to the
                         // narrower (height) dimension of the landscape sensor.
@@ -719,12 +955,12 @@ private fun CameraPreview(
                         // Use the smaller of width/height to match what's visible
                         // in portrait (sensor height = physical narrower side).
                         val portraitSensorWidth = minOf(sensorSize.width, sensorSize.height)
-                        val hfovRad  = 2.0 * atan((portraitSensorWidth / (2.0 * focalLength)))
+                        val hfovRad = 2.0 * atan((portraitSensorWidth / (2.0 * focalLength)))
                         val halfFovDeg = Math.toDegrees(hfovRad).toFloat() / 2f
                         Log.d(
                             "ArOverlay",
                             "Camera HFOV: ${Math.toDegrees(hfovRad).toInt()}° " +
-                            "(focal=${focalLength}mm, sensorW=${portraitSensorWidth}mm)"
+                                "(focal=${focalLength}mm, sensorW=${portraitSensorWidth}mm)",
                         )
                         onFovMeasured(halfFovDeg)
                     } else {
@@ -765,7 +1001,6 @@ private fun CameraPreview(
 
 // ── Cardinal label overlay ────────────────────────────────────────────────────
 
-
 /**
  * Positions floating cardinal direction labels across the screen from [azimuth],
  * [cameraElevationDeg] and the measured camera [fovHalfDeg].
@@ -775,12 +1010,12 @@ private fun CameraPreview(
  *   fracX  = delta / fovHalfDeg                  (−1 = left edge, +1 = right edge)
  *   xPx    = fracX × (viewportWidth / 2)
  *
- * Vertical: the labels mark the horizon, so they must move with it. The vertical
- * half-FOV follows from the measured horizontal one and the viewport aspect ratio
- * (the preview is FILL_CENTER, so degrees-per-pixel is the same on both axes),
- * and the camera's elevation above the horizon maps through it to a screen offset.
- * Pinning all eight labels to one fixed line, as this did before, broke the exact
- * illusion the mode exists for.
+ * Vertical: fixed. The rule and its labels hang
+ * [Constants.Ar.HORIZON_BELOW_HUD_DP] below the heading HUD ([hudBottomPx]) and
+ * do not track camera elevation — tracking the real horizon kept the bar moving
+ * in a hand-held phone, and at the owner's request it no longer does. The HUD
+ * grows a line while a bearing is locked, so toggling the lock slides the bar
+ * with it; that is the only time it moves.
  *
  * Labels outside [Constants.Ar.CULL_MARGIN] × the viewport half-extent are culled so they slide
  * in gracefully from the edges rather than popping into view.
@@ -788,10 +1023,10 @@ private fun CameraPreview(
 @Composable
 private fun CardinalOverlay(
     azimuth: Float,
-    horizonElevationDeg: Float,
     fovHalfDeg: Float,
     lockedBearing: Float?,
     headingDeg: Float,
+    hudBottomPx: Float,
     modifier: Modifier = Modifier,
 ) {
     // Shared with CompassRose — prevents wrap-around jumps across 0°/360°.
@@ -803,7 +1038,7 @@ private fun CardinalOverlay(
     // primary stability mechanism; this animation spec handles only render-frame
     // smoothing between StateFlow emissions.
     val animatedAzimuth by animateFloatAsState(
-        targetValue   = continuousAzimuth,
+        targetValue = continuousAzimuth,
         animationSpec = instrumentSpec(),
         label = "arAzimuth",
     )
@@ -811,43 +1046,44 @@ private fun CardinalOverlay(
     // Guard against degenerate FOV (shouldn't happen but prevents division by zero)
     val safeFovHalfDeg = if (fovHalfDeg > 1f) fovHalfDeg else Constants.Ar.DEFAULT_FOV_HALF_DEG
 
-    BoxWithConstraints(modifier = modifier) {
-        val density      = LocalDensity.current
-        val widthPx      = with(density) { maxWidth.toPx() }
-        val heightPx     = with(density) { maxHeight.toPx() }
-        val halfWidthPx  = widthPx / 2f
+    // This overlay's own top in root coordinates, so the HUD's root-space
+    // bottom edge can be turned into an offset from this box's centre.
+    var overlayTopPx by remember { mutableFloatStateOf(0f) }
+    // NaN until the first anchored position, which is snapped to; only later
+    // changes (the lock toggling the HUD's height) animate.
+    val ruleOffset = remember { Animatable(Float.NaN) }
+
+    BoxWithConstraints(
+        modifier = modifier.onGloballyPositioned { overlayTopPx = it.boundsInRoot().top },
+    ) {
+        val density = LocalDensity.current
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+        val halfWidthPx = widthPx / 2f
         val halfHeightPx = heightPx / 2f
 
-        // Vertical half-FOV from the horizontal one and the viewport aspect ratio.
-        // Clamped because a zero-width viewport mid-layout would otherwise send
-        // this to infinity and park every label off-screen.
-        val vFovHalfDeg = if (widthPx > 0f) {
-            (safeFovHalfDeg * (heightPx / widthPx)).coerceIn(Constants.Ar.V_FOV_HALF_MIN_DEG, Constants.Ar.V_FOV_HALF_MAX_DEG)
-        } else {
-            safeFovHalfDeg
+        // ── Fixed rule ────────────────────────────────────────────────────
+        // The rule sits on one screen line, just under the heading HUD, and
+        // does not track elevation. It used to follow the horizon in the
+        // camera image, and even dead-zoned and committed, a hand-held phone
+        // kept it moving more than it was worth: the bar is read for
+        // direction, which lives on X alone.
+        val belowHudPx = with(density) { Constants.Ar.HORIZON_BELOW_HUD_DP.dp.toPx() }
+        val targetOffsetPx =
+            if (hudBottomPx.isNaN()) {
+                Constants.Ar.HORIZON_BIAS_FRACTION * halfHeightPx
+            } else {
+                hudBottomPx + belowHudPx - overlayTopPx - halfHeightPx
+            }
+        val ruleSpec = horizonSpec()
+        LaunchedEffect(targetOffsetPx) {
+            if (ruleOffset.value.isNaN() || hudBottomPx.isNaN()) {
+                ruleOffset.snapTo(targetOffsetPx)
+            } else {
+                ruleOffset.animateTo(targetOffsetPx, ruleSpec)
+            }
         }
-
-        // ── Dead zone: the rule holds still unless you mean it ────────────
-        // The settled elevation only moves once the live reading has been more
-        // than HORIZON_DEAD_ZONE_DEG away from it for HORIZON_COMMIT_MS. Inside
-        // that band — which is where hand tremor and a braced grip's wobble
-        // both live — the rule does not move at all, which is the entire point.
-        // Screen Y grows downward, so a positive elevation (camera aimed up) gives
-        // a positive offset — raising the phone pushes the horizon, and the labels
-        // on it, down the screen.
-        //
-        // `horizonElevationDeg` is already committed by HorizonCommitGate in the
-        // ViewModel; this composable does not decide when the horizon may move.
-        val fracY = (horizonElevationDeg / vFovHalfDeg)
-            .coerceIn(-Constants.Ar.HORIZON_TRAVEL_CLAMP, Constants.Ar.HORIZON_TRAVEL_CLAMP)
-        // Eases between committed positions now, rather than chasing a live
-        // signal — so this is a transition, not a tracker.
-        val animFracY by animateFloatAsState(
-            targetValue   = fracY,
-            animationSpec = horizonSpec(),
-            label = "labelHorizon",
-        )
-        val yOffsetPx = (animFracY * halfHeightPx + Constants.Ar.HORIZON_BIAS_FRACTION * halfHeightPx).roundToInt()
+        val yOffsetPx = (if (ruleOffset.value.isNaN()) targetOffsetPx else ruleOffset.value).roundToInt()
 
         // ── The horizon rule ──────────────────────────────────────────────
         // Drawn before the labels so their chips sit on top of it and punch
@@ -861,8 +1097,9 @@ private fun CardinalOverlay(
         // Constants.Ar is the other half — together they take the residual from
         // "shimmering" to "settling".
         val lockDelta = lockedBearing?.let { shortestArcDelta(it, headingDeg) }
-        val onCourse = lockDelta != null &&
-            abs(lockDelta) <= Constants.Heading.LOCK_ON_COURSE_DEG
+        val onCourse =
+            lockDelta != null &&
+                abs(lockDelta) <= Constants.Heading.LOCK_ON_COURSE_DEG
 
         HorizonRule(
             yOffsetPx = yOffsetPx,
@@ -890,7 +1127,7 @@ private fun CardinalOverlay(
             // Correct inside a for-loop: CARDINALS is a fixed-size, fixed-order list,
             // so Compose assigns the same slot table entry on every recomposition.
             val animFracX by animateFloatAsState(
-                targetValue   = fracX,
+                targetValue = fracX,
                 animationSpec = instrumentSpec(),
                 label = "label_${direction.label}",
             )
@@ -898,13 +1135,14 @@ private fun CardinalOverlay(
             val xOffsetPx = (animFracX * halfWidthPx).roundToInt()
 
             Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset { IntOffset(xOffsetPx, yOffsetPx) },
+                modifier =
+                    Modifier
+                        .align(Alignment.Center)
+                        .offset { IntOffset(xOffsetPx, yOffsetPx) },
             ) {
                 CardinalLabelChip(
-                    label      = direction.label,
-                    isNorth    = direction.label == "N",
+                    label = direction.label,
+                    isNorth = direction.label == "N",
                     isCardinal = direction.angleDeg % 90f == 0f,
                 )
             }
@@ -928,14 +1166,15 @@ private fun CardinalOverlay(
             if (abs(fracX) <= Constants.Ar.CULL_MARGIN) {
                 // On screen: mark it where it actually is.
                 Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset {
-                            IntOffset(
-                                (animLockX * halfWidthPx).roundToInt(),
-                                yOffsetPx - with(density) { 24.dp.roundToPx() },
-                            )
-                        },
+                    modifier =
+                        Modifier
+                            .align(Alignment.Center)
+                            .offset {
+                                IntOffset(
+                                    (animLockX * halfWidthPx).roundToInt(),
+                                    yOffsetPx - with(density) { 24.dp.roundToPx() },
+                                )
+                            },
                 ) {
                     ArLockMarker(onCourse = onCourse)
                 }
@@ -948,9 +1187,10 @@ private fun CardinalOverlay(
                     toRight = lockDelta > 0,
                     degrees = abs(lockDelta).roundToInt(),
                     yOffsetPx = yOffsetPx,
-                    modifier = Modifier.align(
-                        if (lockDelta > 0) Alignment.CenterEnd else Alignment.CenterStart
-                    ),
+                    modifier =
+                        Modifier.align(
+                            if (lockDelta > 0) Alignment.CenterEnd else Alignment.CenterStart,
+                        ),
                 )
             }
         }
@@ -1018,15 +1258,16 @@ private fun ArLockChevron(
 ) {
     val c = appColors
     Row(
-        modifier = modifier
-            .offset { IntOffset(0, yOffsetPx) }
-            .padding(horizontal = 16.dp)
-            .background(c.chipBg, RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "Locked bearing is $degrees degrees to the " +
-                    if (toRight) "right" else "left"
-            },
+        modifier =
+            modifier
+                .offset { IntOffset(0, yOffsetPx) }
+                .padding(horizontal = 16.dp)
+                .background(c.chipBg, RoundedCornerShape(10.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "Locked bearing is $degrees degrees to the " +
+                        if (toRight) "right" else "left"
+                },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (!toRight) {
@@ -1135,29 +1376,32 @@ private fun CardinalLabelChip(
 ) {
     val c = appColors
 
-    val textColor = when {
-        isNorth    -> c.northLabel
-        isCardinal -> c.textPrimary
-        else       -> c.textSecondary
-    }
-    val fontSize = when {
-        isNorth    -> 22.sp
-        isCardinal -> 18.sp
-        else       -> 14.sp
-    }
+    val textColor =
+        when {
+            isNorth -> c.northLabel
+            isCardinal -> c.textPrimary
+            else -> c.textSecondary
+        }
+    val fontSize =
+        when {
+            isNorth -> 22.sp
+            isCardinal -> 18.sp
+            else -> 14.sp
+        }
     val fontWeight = if (isCardinal) FontWeight.SemiBold else FontWeight.Normal
 
     Text(
-        text       = label,
-        color      = textColor,
-        fontSize   = fontSize,
+        text = label,
+        color = textColor,
+        fontSize = fontSize,
         fontWeight = fontWeight,
-        modifier   = Modifier
-            // Near-opaque chip ground: scene brightness behind a label is
-            // unpredictable, and a translucent ground made these unreadable
-            // against a bright sky.
-            .background(c.chipBg, RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier =
+            Modifier
+                // Near-opaque chip ground: scene brightness behind a label is
+                // unpredictable, and a translucent ground made these unreadable
+                // against a bright sky.
+                .background(c.chipBg, RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
     )
 }
 
@@ -1183,45 +1427,46 @@ private fun TorchButton(
     val c = appColors
 
     val glowAlpha by animateFloatAsState(
-        targetValue   = if (isTorchOn) 1f else 0f,
+        targetValue = if (isTorchOn) 1f else 0f,
         animationSpec = chromeSpec(Constants.Ui.MODE_TRANSITION_MS),
-        label         = "torchGlow",
+        label = "torchGlow",
     )
     val borderColor = if (isTorchOn) c.textPrimary else c.textSecondary.copy(alpha = 0.5f)
-    val iconTint    = if (isTorchOn) c.textPrimary else c.textSecondary
+    val iconTint = if (isTorchOn) c.textPrimary else c.textSecondary
 
     Box(
-        modifier = modifier
-            .size(56.dp)
-            .then(
-                if (glowAlpha > 0f) {
-                    Modifier.drawBehind {
-                        drawCircle(
-                            color  = c.textPrimary.copy(alpha = 0.22f * glowAlpha),
-                            radius = size.minDimension,
-                        )
-                    }
-                } else Modifier
-            )
-            .clip(CircleShape)
-            .background(color = c.chipBg, shape = CircleShape)
-            .border(width = 1.5.dp, color = borderColor, shape = CircleShape)
-            .clickable(
-                onClick = onToggle,
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() },
-            )
-            .semantics {
-                contentDescription = if (isTorchOn) "Turn off flashlight" else "Turn on flashlight"
-                role = Role.Button
-            },
+        modifier =
+            modifier
+                .size(56.dp)
+                .then(
+                    if (glowAlpha > 0f) {
+                        Modifier.drawBehind {
+                            drawCircle(
+                                color = c.textPrimary.copy(alpha = 0.22f * glowAlpha),
+                                radius = size.minDimension,
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                ).clip(CircleShape)
+                .background(color = c.chipBg, shape = CircleShape)
+                .border(width = 1.5.dp, color = borderColor, shape = CircleShape)
+                .clickable(
+                    onClick = onToggle,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ).semantics {
+                    contentDescription = if (isTorchOn) "Turn off flashlight" else "Turn on flashlight"
+                    role = Role.Button
+                },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector        = if (isTorchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+            imageVector = if (isTorchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
             contentDescription = null,
-            tint               = iconTint,
-            modifier           = Modifier.size(26.dp),
+            tint = iconTint,
+            modifier = Modifier.size(26.dp),
         )
     }
 }
@@ -1239,47 +1484,50 @@ private fun CameraPermissionLayout(
     val c = appColors
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(c.bgDeep)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(c.bgDeep)
+                .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
         // Same close affordance as the AR view — the user is never trapped on the
         // permission screen, by button or by back gesture.
         ExitArButton(
             onExitAr = onExitAr,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(8.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
         )
 
         Column(
-            modifier            = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text       = title,
-                color      = c.textPrimary,
-                fontSize   = 22.sp,
+                text = title,
+                color = c.textPrimary,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.SemiBold,
-                textAlign  = TextAlign.Center,
+                textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text       = body,
-                color      = c.textSecondary,
-                fontSize   = 14.sp,
-                textAlign  = TextAlign.Center,
+                text = body,
+                color = c.textSecondary,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
                 lineHeight = 22.sp,
             )
             Spacer(modifier = Modifier.height(32.dp))
             Button(
                 onClick = onRequest,
-                colors  = ButtonDefaults.buttonColors(containerColor = c.buttonBg),
-                shape   = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.buttonBg),
+                shape = RoundedCornerShape(10.dp),
             ) {
                 Text(text = buttonLabel, color = c.textPrimary, fontSize = 14.sp)
             }
